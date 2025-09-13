@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"k8s-node-proxy/internal/discovery"
@@ -60,9 +61,9 @@ func (s *Server) Run() error {
 		return fmt.Errorf("failed to collect server info: %w", err)
 	}
 
-	// Always start port 8080 for homepage
-	if err := s.portManager.StartPort(8080); err != nil {
-		slog.Error("Failed to start homepage port 8080", "error", err)
+	// Always start port 80 for homepage
+	if err := s.portManager.StartPort(80); err != nil {
+		slog.Error("Failed to start homepage port 80", "error", err)
 	}
 
 	// Discover NodePorts once at startup
@@ -73,9 +74,9 @@ func (s *Server) Run() error {
 
 	slog.Info("Starting proxy listeners", "port_count", len(ports))
 
-	// Start listening on all discovered ports (skip 8080 if already started)
+	// Start listening on all discovered ports (skip 80 if already started)
 	for _, port := range ports {
-		if port == 8080 {
+		if port == 80 {
 			continue // Already started above
 		}
 		if err := s.portManager.StartPort(port); err != nil {
@@ -139,12 +140,21 @@ func (s *Server) getAllNodeIPs(ctx context.Context) ([]string, error) {
 func (s *Server) createRouterHandler(proxyHandler *proxy.Handler) http.Handler {
 	mux := http.NewServeMux()
 	
-	// Homepage on root path for port 8080 only
+	// Homepage and static assets on port 80 only
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" && (r.Host == ":8080" || r.Host == "localhost:8080") {
-			s.handleHomepage(w, r)
-			return
+		isPort80 := r.Host == ":80" || r.Host == "localhost:80" || r.Host == "localhost" || strings.HasSuffix(r.Host, ":80")
+		
+		if isPort80 {
+			if r.URL.Path == "/" {
+				s.handleHomepage(w, r)
+				return
+			}
+			if r.URL.Path == "/favicon.ico" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
 		}
+		
 		// All other requests go to proxy
 		proxyHandler.ServeHTTP(w, r)
 	})

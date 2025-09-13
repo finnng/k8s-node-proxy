@@ -13,6 +13,6 @@ WORKDIR /root/
 
 COPY --from=builder /app/k8s-node-proxy .
 
-EXPOSE 8080
+EXPOSE 80
 
 CMD ["./k8s-node-proxy"]

@@ -106,7 +106,7 @@ func (h *Handler) extractPort(host string) string {
 			return port
 		}
 	}
-	return "8080"
+	return "80"
 }
 
 func parseHostPort(hostPort string) (host, port string, err error) {
