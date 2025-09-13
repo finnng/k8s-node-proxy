@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 
+	"k8s-node-proxy/internal/assets"
 	"k8s-node-proxy/internal/discovery"
 	"k8s-node-proxy/internal/k8s"
 	"k8s-node-proxy/internal/proxy"
@@ -66,6 +67,10 @@ func (s *Server) Run() error {
 		slog.Error("Failed to start homepage port 80", "error", err)
 	}
 
+	// Start health monitoring for node IP discovery
+	s.nodeIPDiscovery.StartHealthMonitoring()
+	slog.Info("Started node health monitoring")
+
 	// Discover NodePorts once at startup
 	ports, err := s.nodeDiscovery.DiscoverNodePorts(ctx)
 	if err != nil {
@@ -91,6 +96,7 @@ func (s *Server) Run() error {
 	<-quit
 
 	slog.Info("Shutting down all servers...")
+	s.nodeIPDiscovery.StopHealthMonitoring()
 	s.portManager.StopAll()
 	slog.Info("All servers exited")
 	return nil
@@ -114,6 +120,25 @@ func (s *Server) collectServerInfo(ctx context.Context) error {
 		return fmt.Errorf("failed to get node IPs: %w", err)
 	}
 
+	// Get detailed node information
+	allNodes, err := s.nodeIPDiscovery.GetAllNodes(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get all nodes: %w", err)
+	}
+
+	// Get current node info
+	currentNodeName := s.nodeIPDiscovery.GetCurrentNodeName()
+	currentNodeIP, _ := s.nodeIPDiscovery.GetCurrentNodeIP(ctx)
+
+	var currentNodeInfo *CurrentNodeInfo
+	if currentNodeName != "" {
+		currentNodeInfo = &CurrentNodeInfo{
+			Name:   currentNodeName,
+			IP:     currentNodeIP,
+			Status: "healthy", // Will be updated by health monitoring
+		}
+	}
+
 	s.serverInfo = &ServerInfo{
 		ProjectID:       s.projectID,
 		ClusterName:     clusterInfo.Name,
@@ -121,6 +146,8 @@ func (s *Server) collectServerInfo(ctx context.Context) error {
 		K8sEndpoint:     clusterInfo.Endpoint,
 		NodeIPs:         nodeIPs,
 		Services:        services,
+		CurrentNode:     currentNodeInfo,
+		AllNodes:        allNodes,
 	}
 
 	slog.Info("Server information collected successfully")
@@ -143,19 +170,25 @@ func (s *Server) createRouterHandler(proxyHandler *proxy.Handler) http.Handler {
 	// Homepage and static assets on port 80 only
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		isPort80 := r.Host == ":80" || r.Host == "localhost:80" || r.Host == "localhost" || strings.HasSuffix(r.Host, ":80")
-		
+
 		if isPort80 {
+			// Handle all requests on port 80 as homepage/management interface
 			if r.URL.Path == "/" {
 				s.handleHomepage(w, r)
 				return
 			}
 			if r.URL.Path == "/favicon.ico" {
-				w.WriteHeader(http.StatusNotFound)
+				w.Header().Set("Content-Type", "image/x-icon")
+				w.Header().Set("Cache-Control", "public, max-age=86400") // Cache for 1 day
+				w.Write(assets.FaviconICO)
 				return
 			}
+			// Block all other requests on port 80 - DO NOT proxy them!
+			http.Error(w, "Not Found - This is the management interface on port 80", http.StatusNotFound)
+			return
 		}
-		
-		// All other requests go to proxy
+
+		// Only proxy requests on NodePort ports (not port 80)
 		proxyHandler.ServeHTTP(w, r)
 	})
 	
