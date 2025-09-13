@@ -7,8 +7,6 @@ import (
 	"net/http"
 	"sync"
 	"time"
-
-	"k8s-node-proxy/internal/proxy"
 )
 
 type PortListener struct {
@@ -21,10 +19,10 @@ type PortListener struct {
 type PortManager struct {
 	listeners map[int]*PortListener
 	mutex     sync.RWMutex
-	handler   *proxy.Handler
+	handler   http.Handler
 }
 
-func NewPortManager(handler *proxy.Handler) *PortManager {
+func NewPortManager(handler http.Handler) *PortManager {
 	return &PortManager{
 		listeners: make(map[int]*PortListener),
 		handler:   handler,
