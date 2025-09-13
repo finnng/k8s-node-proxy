@@ -11,28 +11,28 @@ import (
 	"syscall"
 
 	"k8s-node-proxy/internal/assets"
-	"k8s-node-proxy/internal/discovery"
-	"k8s-node-proxy/internal/k8s"
+	"k8s-node-proxy/internal/nodes"
+	"k8s-node-proxy/internal/services"
 	"k8s-node-proxy/internal/proxy"
 )
 
 type Server struct {
 	projectID       string
 	portManager     *PortManager
-	nodeDiscovery   *k8s.NodePortDiscovery
-	nodeIPDiscovery *discovery.NodeDiscovery
+	nodeDiscovery   *services.NodePortDiscovery
+	nodeIPDiscovery *nodes.NodeDiscovery
 	serverInfo      *ServerInfo
 }
 
 func New(projectID string) (*Server, error) {
 	slog.Info("Initializing k8s-node-proxy server", "project", projectID)
 
-	nodeIPDiscovery, err := discovery.New(projectID)
+	nodeIPDiscovery, err := nodes.New(projectID)
 	if err != nil {
 		return nil, err
 	}
 
-	nodePortDiscovery, err := k8s.NewNodePortDiscovery(projectID)
+	nodePortDiscovery, err := services.NewNodePortDiscovery(projectID)
 	if err != nil {
 		return nil, err
 	}

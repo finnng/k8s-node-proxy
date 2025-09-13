@@ -10,15 +10,15 @@ import (
 	"strings"
 	"time"
 
-	"k8s-node-proxy/internal/discovery"
+	"k8s-node-proxy/internal/nodes"
 )
 
 type Handler struct {
-	nodeDiscovery *discovery.NodeDiscovery
+	nodeDiscovery *nodes.NodeDiscovery
 	client        *http.Client
 }
 
-func NewHandler(nodeDiscovery *discovery.NodeDiscovery) *Handler {
+func NewHandler(nodeDiscovery *nodes.NodeDiscovery) *Handler {
 	return &Handler{
 		nodeDiscovery: nodeDiscovery,
 		client: &http.Client{

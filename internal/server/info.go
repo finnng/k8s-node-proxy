@@ -1,8 +1,8 @@
 package server
 
 import (
-	"k8s-node-proxy/internal/discovery"
-	"k8s-node-proxy/internal/k8s"
+	"k8s-node-proxy/internal/nodes"
+	"k8s-node-proxy/internal/services"
 )
 
 type ServerInfo struct {
@@ -11,9 +11,9 @@ type ServerInfo struct {
 	ClusterLocation string
 	K8sEndpoint     string
 	NodeIPs         []string
-	Services        []k8s.ServiceInfo
+	Services        []services.ServiceInfo
 	CurrentNode     *CurrentNodeInfo
-	AllNodes        []discovery.NodeInfo
+	AllNodes        []nodes.NodeInfo
 }
 
 type CurrentNodeInfo struct {

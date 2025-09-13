@@ -2,6 +2,7 @@
 .env
 
 # Go binaries
+bin/
 k8s-node-proxy
 *.exe
 *.exe~
