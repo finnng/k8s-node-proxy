@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/oauth2/google"
 	"google.golang.org/api/container/v1"
 	"google.golang.org/api/option"
-	"golang.org/x/oauth2/google"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -35,15 +35,15 @@ type NodeInfo struct {
 }
 
 type NodeDiscovery struct {
-	projectID        string
-	containerSvc     *container.Service
-	k8sClientset     *kubernetes.Clientset
-	cachedIP         string
-	cachedNodes      []NodeInfo
-	currentNodeName  string
-	cacheTime        time.Time
-	cacheTTL         time.Duration
-	mutex            sync.RWMutex
+	projectID       string
+	containerSvc    *container.Service
+	k8sClientset    *kubernetes.Clientset
+	cachedIP        string
+	cachedNodes     []NodeInfo
+	currentNodeName string
+	cacheTime       time.Time
+	cacheTTL        time.Duration
+	mutex           sync.RWMutex
 
 	// Health monitoring
 	failureCount     int
@@ -193,9 +193,9 @@ func getNodeStatus(node corev1.Node) NodeStatus {
 
 // findOldestHealthyNode selects the oldest node that is healthy
 func (d *NodeDiscovery) findOldestHealthyNode(nodes []NodeInfo) *NodeInfo {
-	for _, node := range nodes {
-		if node.Status == NodeHealthy {
-			return &node
+	for i := range nodes {
+		if nodes[i].Status == NodeHealthy {
+			return &nodes[i]
 		}
 	}
 	return nil
