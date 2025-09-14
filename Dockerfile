@@ -5,7 +5,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o k8s-node-proxy ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux go build -o k8s-node-proxy ./cmd/server
 
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
