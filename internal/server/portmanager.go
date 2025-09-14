@@ -18,7 +18,6 @@ type PortListener struct {
 
 type PortManager struct {
 	listeners map[int]*PortListener
-	mutex     sync.RWMutex
 }
 
 func NewPortManager() *PortManager {
@@ -28,9 +27,6 @@ func NewPortManager() *PortManager {
 }
 
 func (pm *PortManager) StartPort(port int, handler http.Handler) error {
-	pm.mutex.Lock()
-	defer pm.mutex.Unlock()
-
 	if _, exists := pm.listeners[port]; exists {
 		return fmt.Errorf("port %d already listening", port)
 	}
@@ -49,9 +45,6 @@ func (pm *PortManager) StartPort(port int, handler http.Handler) error {
 }
 
 func (pm *PortManager) StopPort(port int) error {
-	pm.mutex.Lock()
-	defer pm.mutex.Unlock()
-
 	listener, exists := pm.listeners[port]
 	if !exists {
 		return fmt.Errorf("port %d not listening", port)
@@ -65,9 +58,6 @@ func (pm *PortManager) StopPort(port int) error {
 }
 
 func (pm *PortManager) GetListeningPorts() []int {
-	pm.mutex.RLock()
-	defer pm.mutex.RUnlock()
-
 	var ports []int
 	for port := range pm.listeners {
 		ports = append(ports, port)
@@ -76,9 +66,6 @@ func (pm *PortManager) GetListeningPorts() []int {
 }
 
 func (pm *PortManager) StopAll() {
-	pm.mutex.Lock()
-	defer pm.mutex.Unlock()
-
 	var wg sync.WaitGroup
 	for port, listener := range pm.listeners {
 		wg.Add(1)
