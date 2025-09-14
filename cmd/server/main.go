@@ -5,15 +5,10 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/joho/godotenv"
 	"k8s-node-proxy/internal/server"
 )
 
 func main() {
-	if err := godotenv.Load(); err != nil {
-		log.Printf("No .env file found or error loading it: %v", err)
-	}
-
 	projectID := os.Getenv("PROJECT_ID")
 	if projectID == "" {
 		projectID = os.Getenv("GOOGLE_CLOUD_PROJECT")
