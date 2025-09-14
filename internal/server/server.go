@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"k8s-node-proxy/internal/assets"
@@ -18,14 +17,15 @@ import (
 
 type Server struct {
 	projectID       string
+	servicePort     int
 	portManager     *PortManager
 	nodeDiscovery   *services.NodePortDiscovery
 	nodeIPDiscovery *nodes.NodeDiscovery
 	serverInfo      *ServerInfo
 }
 
-func New(projectID string) (*Server, error) {
-	slog.Info("Initializing k8s-node-proxy server", "project", projectID)
+func New(projectID string, servicePort int) (*Server, error) {
+	slog.Info("Initializing k8s-node-proxy server", "project", projectID, "service_port", servicePort)
 
 	nodeIPDiscovery, err := nodes.New(projectID)
 	if err != nil {
@@ -39,15 +39,14 @@ func New(projectID string) (*Server, error) {
 
 	server := &Server{
 		projectID:       projectID,
+		servicePort:     servicePort,
 		nodeDiscovery:   nodePortDiscovery,
 		nodeIPDiscovery: nodeIPDiscovery,
 		serverInfo:      nil, // Will be populated during Run()
 	}
 
-	// Create router handler
-	proxyHandler := proxy.NewHandler(nodeIPDiscovery)
-	routerHandler := server.createRouterHandler(proxyHandler)
-	portManager := NewPortManager(routerHandler)
+	// Create port manager
+	portManager := NewPortManager()
 	server.portManager = portManager
 
 	slog.Info("Server initialization completed successfully")
@@ -62,9 +61,13 @@ func (s *Server) Run() error {
 		return fmt.Errorf("failed to collect server info: %w", err)
 	}
 
-	// Always start port 80 for homepage
-	if err := s.portManager.StartPort(80); err != nil {
-		slog.Error("Failed to start homepage port 80", "error", err)
+	// Create handlers
+	serviceHandler := s.createServiceHandler()
+	proxyHandler := proxy.NewHandler(s.nodeIPDiscovery)
+
+	// Start the configured service port for homepage
+	if err := s.portManager.StartPort(s.servicePort, serviceHandler); err != nil {
+		slog.Error("Failed to start homepage service port", "port", s.servicePort, "error", err)
 	}
 
 	// Start health monitoring for node IP discovery
@@ -79,12 +82,12 @@ func (s *Server) Run() error {
 
 	slog.Info("Starting proxy listeners", "port_count", len(ports))
 
-	// Start listening on all discovered ports (skip 80 if already started)
+	// Start listening on all discovered ports (skip service port if already started)
 	for _, port := range ports {
-		if port == 80 {
+		if port == s.servicePort {
 			continue // Already started above
 		}
-		if err := s.portManager.StartPort(port); err != nil {
+		if err := s.portManager.StartPort(port, proxyHandler); err != nil {
 			slog.Error("Failed to start port listener", "port", port, "error", err)
 		}
 	}
@@ -164,33 +167,24 @@ func (s *Server) getAllNodeIPs(ctx context.Context) ([]string, error) {
 	return []string{nodeIP}, nil
 }
 
-func (s *Server) createRouterHandler(proxyHandler *proxy.Handler) http.Handler {
+func (s *Server) createServiceHandler() http.Handler {
 	mux := http.NewServeMux()
-	
-	// Homepage and static assets on port 80 only
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		isPort80 := r.Host == ":80" || r.Host == "localhost:80" || r.Host == "localhost" || strings.HasSuffix(r.Host, ":80")
 
-		if isPort80 {
-			// Handle all requests on port 80 as homepage/management interface
-			if r.URL.Path == "/" {
-				s.handleHomepage(w, r)
-				return
-			}
-			if r.URL.Path == "/favicon.ico" {
-				w.Header().Set("Content-Type", "image/x-icon")
-				w.Header().Set("Cache-Control", "public, max-age=86400") // Cache for 1 day
-				w.Write(assets.FaviconICO)
-				return
-			}
-			// Block all other requests on port 80 - DO NOT proxy them!
-			http.Error(w, "Not Found - This is the management interface on port 80", http.StatusNotFound)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/" {
+			s.handleHomepage(w, r)
 			return
 		}
-
-		// Only proxy requests on NodePort ports (not port 80)
-		proxyHandler.ServeHTTP(w, r)
+		if r.URL.Path == "/favicon.ico" {
+			w.Header().Set("Content-Type", "image/x-icon")
+			w.Header().Set("Cache-Control", "public, max-age=86400") // Cache for 1 day
+			w.Write(assets.FaviconICO)
+			return
+		}
+		// Block all other requests on service port - DO NOT proxy them!
+		http.Error(w, fmt.Sprintf("Not Found - This is the management interface on port %d", s.servicePort), http.StatusNotFound)
 	})
-	
+
 	return mux
 }
+

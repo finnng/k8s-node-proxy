@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"os"
+	"strconv"
 
 	"github.com/joho/godotenv"
 	"k8s-node-proxy/internal/server"
@@ -21,9 +22,19 @@ func main() {
 		log.Fatal("PROJECT_ID or GOOGLE_CLOUD_PROJECT environment variable must be set")
 	}
 
-	log.Printf("Starting k8s-node-proxy for project: %s", projectID)
+	// Get proxy service port from environment, default to 80
+	proxyServicePort := 80
+	if portStr := os.Getenv("PROXY_SERVICE_PORT"); portStr != "" {
+		if port, err := strconv.Atoi(portStr); err != nil {
+			log.Fatalf("Invalid PROXY_SERVICE_PORT value '%s': %v", portStr, err)
+		} else {
+			proxyServicePort = port
+		}
+	}
 
-	srv, err := server.New(projectID)
+	log.Printf("Starting k8s-node-proxy for project: %s, service port: %d", projectID, proxyServicePort)
+
+	srv, err := server.New(projectID, proxyServicePort)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}

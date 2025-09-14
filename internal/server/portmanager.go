@@ -19,17 +19,15 @@ type PortListener struct {
 type PortManager struct {
 	listeners map[int]*PortListener
 	mutex     sync.RWMutex
-	handler   http.Handler
 }
 
-func NewPortManager(handler http.Handler) *PortManager {
+func NewPortManager() *PortManager {
 	return &PortManager{
 		listeners: make(map[int]*PortListener),
-		handler:   handler,
 	}
 }
 
-func (pm *PortManager) StartPort(port int) error {
+func (pm *PortManager) StartPort(port int, handler http.Handler) error {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
 
@@ -39,7 +37,7 @@ func (pm *PortManager) StartPort(port int) error {
 
 	listener := &PortListener{
 		port:     port,
-		server:   &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: pm.handler},
+		server:   &http.Server{Addr: fmt.Sprintf(":%d", port), Handler: handler},
 		shutdown: make(chan struct{}),
 		done:     make(chan struct{}),
 	}

@@ -7,8 +7,7 @@ import (
 )
 
 func TestNewPortManager(t *testing.T) {
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-	pm := NewPortManager(handler)
+	pm := NewPortManager()
 
 	if pm == nil {
 		t.Fatal("Expected PortManager, got nil")
@@ -16,14 +15,10 @@ func TestNewPortManager(t *testing.T) {
 	if pm.listeners == nil {
 		t.Error("Expected listeners map to be initialized")
 	}
-	if pm.handler == nil {
-		t.Error("Expected handler to be set")
-	}
 }
 
 func TestGetListeningPorts_Empty(t *testing.T) {
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-	pm := NewPortManager(handler)
+	pm := NewPortManager()
 
 	ports := pm.GetListeningPorts()
 	if len(ports) != 0 {
@@ -33,10 +28,10 @@ func TestGetListeningPorts_Empty(t *testing.T) {
 
 func TestStartPort_DuplicatePort(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-	pm := NewPortManager(handler)
+	pm := NewPortManager()
 
 	// Start first port
-	err := pm.StartPort(8080)
+	err := pm.StartPort(8080, handler)
 	if err != nil {
 		t.Fatalf("Expected no error starting port 8080, got %v", err)
 	}
@@ -45,7 +40,7 @@ func TestStartPort_DuplicatePort(t *testing.T) {
 	time.Sleep(10 * time.Millisecond)
 
 	// Try to start same port again
-	err = pm.StartPort(8080)
+	err = pm.StartPort(8080, handler)
 	if err == nil {
 		t.Error("Expected error when starting duplicate port")
 	}
@@ -58,8 +53,7 @@ func TestStartPort_DuplicatePort(t *testing.T) {
 }
 
 func TestStopPort_NonExistentPort(t *testing.T) {
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-	pm := NewPortManager(handler)
+	pm := NewPortManager()
 
 	err := pm.StopPort(9999)
 	if err == nil {
@@ -72,12 +66,12 @@ func TestStopPort_NonExistentPort(t *testing.T) {
 
 func TestGetListeningPorts_WithPorts(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-	pm := NewPortManager(handler)
+	pm := NewPortManager()
 
 	// Start some ports
 	ports := []int{8081, 8082, 8083}
 	for _, port := range ports {
-		err := pm.StartPort(port)
+		err := pm.StartPort(port, handler)
 		if err != nil {
 			t.Fatalf("Failed to start port %d: %v", port, err)
 		}
@@ -109,12 +103,12 @@ func TestGetListeningPorts_WithPorts(t *testing.T) {
 
 func TestStopAll(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-	pm := NewPortManager(handler)
+	pm := NewPortManager()
 
 	// Start multiple ports
 	ports := []int{8084, 8085, 8086}
 	for _, port := range ports {
-		err := pm.StartPort(port)
+		err := pm.StartPort(port, handler)
 		if err != nil {
 			t.Fatalf("Failed to start port %d: %v", port, err)
 		}
@@ -141,12 +135,12 @@ func TestStopAll(t *testing.T) {
 
 func TestStartStop_SinglePort(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
-	pm := NewPortManager(handler)
+	pm := NewPortManager()
 
 	port := 8087
 
 	// Start port
-	err := pm.StartPort(port)
+	err := pm.StartPort(port, handler)
 	if err != nil {
 		t.Fatalf("Failed to start port %d: %v", port, err)
 	}
