@@ -11,8 +11,8 @@ import (
 
 	"k8s-node-proxy/internal/assets"
 	"k8s-node-proxy/internal/nodes"
-	"k8s-node-proxy/internal/services"
 	"k8s-node-proxy/internal/proxy"
+	"k8s-node-proxy/internal/services"
 )
 
 type Server struct {
@@ -110,7 +110,7 @@ func (s *Server) collectServerInfo(ctx context.Context) error {
 
 	// Get cluster info
 	clusterInfo := s.nodeDiscovery.GetClusterInfo()
-	
+
 	// Get services info
 	services, err := s.nodeDiscovery.DiscoverServices(ctx)
 	if err != nil {
@@ -171,20 +171,26 @@ func (s *Server) createServiceHandler() http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" {
+		path := r.URL.Path
+		if path == "/" {
 			s.handleHomepage(w, r)
 			return
 		}
-		if r.URL.Path == "/favicon.ico" {
+		if path == "/favicon.ico" {
 			w.Header().Set("Content-Type", "image/x-icon")
 			w.Header().Set("Cache-Control", "public, max-age=86400") // Cache for 1 day
 			w.Write(assets.FaviconICO)
 			return
 		}
+		if path == "/health" {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
+			return
+		}
+
 		// Block all other requests on service port - DO NOT proxy them!
 		http.Error(w, fmt.Sprintf("Not Found - This is the management interface on port %d", s.servicePort), http.StatusNotFound)
 	})
 
 	return mux
 }
-

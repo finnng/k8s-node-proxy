@@ -18,9 +18,13 @@ Solves the problem of changing Kubernetes node IPs by providing a stable proxy t
 
 ## Setup
 
+### Option 1: Manual Setup
 1. **Deploy on Google Cloud VM** with service account having `container.clusterViewer` role
 2. **Set environment**: `PROJECT_ID=your-gcp-project`
 3. **Run**: `./k8s-node-proxy`
+
+### Option 2: Automated GCP Deployment
+See [deployment/gcp/README.md](deployment/gcp/README.md) for VPC-only deployment scripts.
 
 The proxy will:
 - Discover all NodePort services in your GKE cluster

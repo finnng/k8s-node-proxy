@@ -1,0 +1,11 @@
+# Service account key files - NEVER COMMIT THESE
+*-key.json
+*.json
+
+# Environment files with credentials
+.env-gcp
+.env*
+
+# Temporary files
+*.tmp
+*.log
