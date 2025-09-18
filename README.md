@@ -19,8 +19,8 @@ Solves the problem of changing Kubernetes node IPs by providing a stable proxy t
 ## Setup
 
 ### Option 1: Manual Setup
-1. **Deploy on Google Cloud VM** with service account having `container.clusterViewer` role
-2. **Set environment**: `PROJECT_ID=your-gcp-project`
+1. **Deploy on Google Cloud VM** with proper service account permissions (see Requirements below)
+2. **Set environment variable**: `PROJECT_ID=your-gcp-project` or `GOOGLE_CLOUD_PROJECT=your-gcp-project`
 3. **Run**: `./k8s-node-proxy`
 
 ### Option 2: Automated GCP Deployment
@@ -33,16 +33,27 @@ The proxy will:
 
 ## Configuration
 
-Create `.env` file:
-```bash
-PROJECT_ID=your-gcp-project-id
-```
+### Required Environment Variables
+- `PROJECT_ID` or `GOOGLE_CLOUD_PROJECT`: GCP project containing the GKE cluster
+
+### Optional Environment Variables
+- `PROXY_SERVICE_PORT`: Port for the management interface (default: 80)
 
 ## Requirements
 
-- Google Cloud VM with service account permissions
-- GKE cluster in the same project
-- Go 1.24+ (for building from source)
+### Google Cloud Permissions
+The application requires a Google Cloud VM with a service account having the following IAM roles:
+- **`roles/container.clusterViewer`**: To discover GKE clusters and access cluster metadata
+- **Network access**: VM must be able to reach the GKE cluster API server
+
+### Runtime Dependencies
+- **GKE cluster**: Must be in the same GCP project as the VM
+- **Google Application Default Credentials (ADC)**: Automatically available on GCP VMs
+- **Go 1.24+**: Only required for building from source
+
+### Network Requirements
+- VM must have network connectivity to the GKE cluster API server
+- Outbound HTTPS access to Google Cloud APIs (container.googleapis.com)
 
 ## License
 
