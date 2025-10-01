@@ -2,32 +2,57 @@
 
 A lightweight proxy server that automatically discovers Kubernetes NodePort services and forwards traffic to current cluster nodes.
 
-## How it works
+![Demo Screenshot](demo_cluster.png)
 
-1. **Auto-discovery**: Connects to GKE clusters using Google Cloud APIs to discover active NodePort services
-2. **Dynamic forwarding**: Automatically finds current node IPs and forwards requests transparently
-3. **Static access**: Provides stable endpoints for accessing dynamic Kubernetes services
+## The Problem This Solves
 
+In Kubernetes environments, **NodePort services** expose applications on a static port (30000-32767) across all cluster nodes. However, accessing these services presents challenges:
+
+### 🔍 **Dynamic Node IPs**
+- **GKE node IPs change** during cluster autoscaling, upgrades, or maintenance
+- **Direct node access** requires constantly updating IP addresses in applications
+- **LoadBalancer services** work but add cost and complexity for internal tools
+
+### 🎯 **Development & Internal Tools**
+- **CI/CD pipelines** need stable endpoints to run tests against NodePort services
+- **Internal applications** require predictable URLs for service-to-service communication
+- **Development environments** need consistent access points that survive cluster changes
+
+## How k8s-node-proxy Solves This
+
+k8s-node-proxy acts as a **stable gateway** that sits outside your Kubernetes cluster and automatically:
+
+1. **🔍 Discovers NodePort services** in your target namespace via Kubernetes API
+2. **📡 Monitors cluster nodes** and their health status continuously
+3. **🔄 Routes traffic intelligently** to healthy nodes with automatic failover
+4. **⚡ Provides static endpoints** that never change regardless of cluster state
+
+### Architecture Flow
 ```
-Developer → proxy:30001 → current-node-ip:30001 → pod
+External Client → k8s-node-proxy:30001 → healthy-node-ip:30001 → NodePort Service → Pod
 ```
 
-## Use Case
-
-Solves the problem of changing Kubernetes node IPs by providing a stable proxy that automatically tracks node changes and forwards traffic to the right destination.
+### Key Benefits
+- **🎯 Stable URLs**: Access `proxy-vm:30001` instead of `changing-node-ip:30001`
+- **🔄 Automatic failover**: Routes around unhealthy nodes (45-second max failover)
+- **📊 Real-time monitoring**: Web UI shows cluster status, node health, and service discovery
+- **🛡️ Namespace isolation**: Scoped to specific namespace to avoid port conflicts
+- **⚙️ Zero configuration**: Auto-discovers everything through Kubernetes API
 
 ## Setup
 
 ### Option 1: Manual Setup
 1. **Deploy on Google Cloud VM** with proper service account permissions (see Requirements below)
-2. **Set environment variable**: `PROJECT_ID=your-gcp-project` or `GOOGLE_CLOUD_PROJECT=your-gcp-project`
+2. **Set environment variables**:
+   - `PROJECT_ID=your-gcp-project` or `GOOGLE_CLOUD_PROJECT=your-gcp-project`
+   - `NAMESPACE=your-target-namespace`
 3. **Run**: `./k8s-node-proxy`
 
 ### Option 2: Automated GCP Deployment
 See [deployment/gcp/README.md](deployment/gcp/README.md) for VPC-only deployment scripts.
 
 The proxy will:
-- Discover all NodePort services in your GKE cluster
+- Discover all NodePort services in the specified namespace
 - Start listeners on those ports
 - Forward traffic to current cluster nodes automatically
 
@@ -35,6 +60,7 @@ The proxy will:
 
 ### Required Environment Variables
 - `PROJECT_ID` or `GOOGLE_CLOUD_PROJECT`: GCP project containing the GKE cluster
+- `NAMESPACE`: Kubernetes namespace to discover NodePort services from
 
 ### Optional Environment Variables
 - `PROXY_SERVICE_PORT`: Port for the management interface (default: 80)
@@ -43,7 +69,7 @@ The proxy will:
 
 ### Google Cloud Permissions
 The application requires a Google Cloud VM with a service account having the following IAM roles:
-- **`roles/container.clusterViewer`**: To discover GKE clusters and access cluster metadata
+- **`roles/container.viewer`**: To discover GKE clusters, access cluster metadata, and list services
 - **Network access**: VM must be able to reach the GKE cluster API server
 
 ### Runtime Dependencies
