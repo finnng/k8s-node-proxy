@@ -39,27 +39,30 @@ This script will:
 To update an existing VM with the latest Docker image:
 
 ```bash
-PROJECT_ID=my-project ZONE=us-central1-a ./update-container.sh
+PROJECT_ID=my-project NAMESPACE=production ZONE=us-central1-a ./update-container.sh
 ```
 
 This script will:
 - Temporarily add external IP to the VM (if not present)
 - Pull the latest Docker image from Docker Hub
-- Restart the container with the new image
+- Stop and remove the old container
+- Create a new container with the updated image and same configuration
 - Remove the external IP (restores to internal-only state)
 - Verify service health after update
 
 **Required environment variables:**
 - `PROJECT_ID` - GCP project ID
+- `NAMESPACE` - Kubernetes namespace
 
 **Optional environment variables:**
 - `ZONE` - GCP zone (default: us-central1-a)
 - `VM_NAME` - VM instance name (default: k8s-node-proxy)
 - `SOURCE_IMAGE` - Docker image to pull (default: finnng/k8s-node-proxy:latest)
+- `PROXY_SERVICE_PORT` - Service port (default: 80)
 
 **Example:**
 ```bash
-PROJECT_ID=agency-revolution-staging ZONE=asia-southeast1-a ./update-container.sh
+PROJECT_ID=my-project NAMESPACE=production ZONE=asia-southeast1-a ./update-container.sh
 ```
 
 ## Environment Variables

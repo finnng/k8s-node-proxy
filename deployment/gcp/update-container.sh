@@ -11,6 +11,8 @@ PROJECT_ID=${PROJECT_ID}
 VM_NAME=${VM_NAME:-"k8s-node-proxy"}
 ZONE=${ZONE:-"us-central1-a"}
 SOURCE_IMAGE=${SOURCE_IMAGE:-"finnng/k8s-node-proxy:latest"}
+PROXY_SERVICE_PORT=${PROXY_SERVICE_PORT:-"80"}
+NAMESPACE=${NAMESPACE:-""}
 
 error() {
   echo "ERROR: $1" >&2
@@ -27,12 +29,20 @@ warn() {
 
 # Validate required parameters
 if [[ -z "$PROJECT_ID" ]]; then
-  echo "Usage: PROJECT_ID=my-project $0"
+  echo "Usage: PROJECT_ID=my-project NAMESPACE=my-namespace $0"
   echo "Environment variables:"
   echo "  PROJECT_ID=${PROJECT_ID} (required)"
+  echo "  NAMESPACE=${NAMESPACE} (required)"
   echo "  VM_NAME=${VM_NAME}"
   echo "  ZONE=${ZONE}"
   echo "  SOURCE_IMAGE=${SOURCE_IMAGE}"
+  echo "  PROXY_SERVICE_PORT=${PROXY_SERVICE_PORT}"
+  exit 1
+fi
+
+if [[ -z "$NAMESPACE" ]]; then
+  echo "ERROR: NAMESPACE environment variable is required"
+  echo "Usage: PROJECT_ID=my-project NAMESPACE=my-namespace $0"
   exit 1
 fi
 
@@ -42,6 +52,8 @@ echo "  Project ID: $PROJECT_ID"
 echo "  VM Name: $VM_NAME"
 echo "  Zone: $ZONE"
 echo "  Docker Image: $SOURCE_IMAGE"
+echo "  Namespace: $NAMESPACE"
+echo "  Service Port: $PROXY_SERVICE_PORT"
 echo
 
 # Set project
@@ -100,21 +112,47 @@ cleanup() {
 # Set trap to ensure cleanup happens even on error
 trap cleanup EXIT
 
-# Pull latest image and restart container
+# Build environment variables string (same as deploy-vm.sh)
+ENV_VARS_STRING="-e PROJECT_ID=${PROJECT_ID}"
+if [[ "$PROXY_SERVICE_PORT" != "80" ]]; then
+  ENV_VARS_STRING="${ENV_VARS_STRING} -e PROXY_SERVICE_PORT=${PROXY_SERVICE_PORT}"
+fi
+if [[ -n "$NAMESPACE" ]]; then
+  ENV_VARS_STRING="${ENV_VARS_STRING} -e NAMESPACE=${NAMESPACE}"
+fi
+
+# Pull latest image and recreate container
 info "Pulling latest image from Docker Hub..."
 gcloud compute ssh "$VM_NAME" --project="$PROJECT_ID" --zone="$ZONE" --command="
   set -e
   echo 'Pulling image...'
   sudo docker pull --platform=linux/amd64 $SOURCE_IMAGE || exit 1
-  echo 'Restarting container...'
+
+  # Check for running container
   CONTAINER_ID=\$(sudo docker ps -q)
-  if [[ -z \"\$CONTAINER_ID\" ]]; then
-    echo 'ERROR: No running container found'
-    exit 1
+  if [[ -n \"\$CONTAINER_ID\" ]]; then
+    echo 'Stopping old container...'
+    sudo docker stop \$CONTAINER_ID || exit 1
+    sudo docker rm \$CONTAINER_ID || exit 1
+  else
+    echo 'No running container found, checking for stopped containers...'
+    STOPPED_CONTAINER=\$(sudo docker ps -a -q)
+    if [[ -n \"\$STOPPED_CONTAINER\" ]]; then
+      echo 'Removing stopped container...'
+      sudo docker rm \$STOPPED_CONTAINER || true
+    fi
   fi
-  sudo docker restart \$CONTAINER_ID || exit 1
-  echo 'Container restarted successfully'
-" || error "Failed to pull image and restart container"
+
+  echo 'Starting new container with updated image...'
+  sudo docker run -d --restart=always \
+    --network host \
+    $ENV_VARS_STRING \
+    $SOURCE_IMAGE || exit 1
+  echo 'Container recreated successfully'
+" || error "Failed to pull image and recreate container"
+
+info "Waiting for new container to start..."
+sleep 10
 
 info "Waiting for service to be ready..."
 sleep 5
