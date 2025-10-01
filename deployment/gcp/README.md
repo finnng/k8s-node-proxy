@@ -34,6 +34,34 @@ This script will:
 - Use the service account with minimal required permissions
 - VM accessible only within VPC network after external IP removal
 
+### 3. Update Running Container
+
+To update an existing VM with the latest Docker image:
+
+```bash
+PROJECT_ID=my-project ZONE=us-central1-a ./update-container.sh
+```
+
+This script will:
+- Temporarily add external IP to the VM (if not present)
+- Pull the latest Docker image from Docker Hub
+- Restart the container with the new image
+- Remove the external IP (restores to internal-only state)
+- Verify service health after update
+
+**Required environment variables:**
+- `PROJECT_ID` - GCP project ID
+
+**Optional environment variables:**
+- `ZONE` - GCP zone (default: us-central1-a)
+- `VM_NAME` - VM instance name (default: k8s-node-proxy)
+- `SOURCE_IMAGE` - Docker image to pull (default: finnng/k8s-node-proxy:latest)
+
+**Example:**
+```bash
+PROJECT_ID=agency-revolution-staging ZONE=asia-southeast1-a ./update-container.sh
+```
+
 ## Environment Variables
 
 ### Required
@@ -108,7 +136,7 @@ When using custom VPC networks, you must provide both `NETWORK` and `SUBNET`. Th
 
 ## Cleanup
 
-### 3. Teardown Resources
+### 4. Teardown Resources
 
 ```bash
 PROJECT_ID=my-project ./teardown.sh
