@@ -267,6 +267,13 @@ func buildK8sConfig(ctx context.Context, containerSvc *container.Service, projec
 
 	cluster := clusters.Clusters[0]
 
+	// Use private endpoint for internal VPC connectivity
+	if cluster.PrivateClusterConfig == nil || cluster.PrivateClusterConfig.PrivateEndpoint == "" {
+		return nil, nil, fmt.Errorf("cluster %s does not have a private endpoint configured", cluster.Name)
+	}
+	endpoint := cluster.PrivateClusterConfig.PrivateEndpoint
+	fmt.Printf("Using private cluster endpoint: %s\n", endpoint)
+
 	// Decode cluster CA certificate
 	caCert, err := base64.StdEncoding.DecodeString(cluster.MasterAuth.ClusterCaCertificate)
 	if err != nil {
@@ -287,7 +294,7 @@ func buildK8sConfig(ctx context.Context, containerSvc *container.Service, projec
 
 	// Build Kubernetes config
 	config := &rest.Config{
-		Host: "https://" + cluster.Endpoint,
+		Host: "https://" + endpoint,
 		TLSClientConfig: rest.TLSClientConfig{
 			CAData: caCert,
 		},

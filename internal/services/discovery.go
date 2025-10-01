@@ -82,11 +82,18 @@ func buildK8sConfig(ctx context.Context, containerSvc *container.Service, projec
 	cluster := clusters.Clusters[0]
 	slog.Info("Using cluster for K8s API access", "cluster", cluster.Name, "location", cluster.Location)
 
+	// Use private endpoint for internal VPC connectivity
+	if cluster.PrivateClusterConfig == nil || cluster.PrivateClusterConfig.PrivateEndpoint == "" {
+		return nil, nil, fmt.Errorf("cluster %s does not have a private endpoint configured", cluster.Name)
+	}
+	endpoint := cluster.PrivateClusterConfig.PrivateEndpoint
+	slog.Info("Using private cluster endpoint", "endpoint", endpoint)
+
 	// Create cluster info
 	clusterInfo := &ClusterInfo{
 		Name:     cluster.Name,
 		Location: cluster.Location,
-		Endpoint: cluster.Endpoint,
+		Endpoint: endpoint,
 	}
 
 	// Decode cluster CA certificate
@@ -109,14 +116,14 @@ func buildK8sConfig(ctx context.Context, containerSvc *container.Service, projec
 
 	// Build Kubernetes config
 	config := &rest.Config{
-		Host: "https://" + cluster.Endpoint,
+		Host: "https://" + endpoint,
 		TLSClientConfig: rest.TLSClientConfig{
 			CAData: caCert,
 		},
 		BearerToken: token.AccessToken,
 	}
 
-	slog.Info("Kubernetes configuration built successfully", "endpoint", cluster.Endpoint)
+	slog.Info("Kubernetes configuration built successfully", "endpoint", endpoint)
 	return config, clusterInfo, nil
 }
 
