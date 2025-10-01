@@ -284,7 +284,7 @@ gcloud compute instances delete-access-config "$VM_NAME" \
 # Wait for service to be ready
 info "Waiting for service to be ready..."
 for i in $(seq 1 15); do
-  if gcloud compute ssh "$VM_NAME" --project="$PROJECT_ID" --zone="$ZONE" --internal-ip --tunnel-through-iap --command="curl -s http://localhost:$PROXY_SERVICE_PORT/health" 2>/dev/null | grep -q "OK"; then
+  if gcloud compute ssh "$VM_NAME" --project="$PROJECT_ID" --zone="$ZONE" --internal-ip --command="curl -s http://localhost:$PROXY_SERVICE_PORT/health" 2>/dev/null | grep "OK"; then
     info "Service is ready"
     break
   fi
