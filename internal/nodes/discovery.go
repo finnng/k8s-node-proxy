@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"net/http"
 	"sort"
 	"sync"
 	"time"
 
+	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/container/v1"
 	"google.golang.org/api/option"
@@ -286,19 +288,18 @@ func buildK8sConfig(ctx context.Context, containerSvc *container.Service, projec
 		return nil, nil, fmt.Errorf("failed to get default token source: %w", err)
 	}
 
-	// Get a token to use for authentication
-	token, err := tokenSource.Token()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get token: %w", err)
-	}
-
-	// Build Kubernetes config
+	// Build Kubernetes config with auto-refreshing token
 	config := &rest.Config{
 		Host: "https://" + endpoint,
 		TLSClientConfig: rest.TLSClientConfig{
 			CAData: caCert,
 		},
-		BearerToken: token.AccessToken,
+		WrapTransport: func(rt http.RoundTripper) http.RoundTripper {
+			return &oauth2.Transport{
+				Source: tokenSource,
+				Base:   rt,
+			}
+		},
 	}
 
 	return config, nil, nil
