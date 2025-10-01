@@ -35,6 +35,7 @@ const homepageTemplate = `
             <tr><td>Cluster Name</td><td>{{.ClusterName}}</td></tr>
             <tr><td>Cluster Location</td><td>{{.ClusterLocation}}</td></tr>
             <tr><td>Kubernetes Endpoint</td><td>{{.K8sEndpoint}}</td></tr>
+            <tr><td>Target Namespace</td><td>{{.Namespace}}</td></tr>
         </table>
     </div>
 
@@ -75,7 +76,7 @@ const homepageTemplate = `
     </div>
 
     <div class="section">
-        <h2>NodePort Services</h2>
+        <h2>NodePort Services ({{.Namespace}} namespace)</h2>
         <table>
             <tr><th>Service</th><th>Namespace</th><th>NodePort</th><th>TargetPort</th><th>Protocol</th></tr>
             {{range .Services}}

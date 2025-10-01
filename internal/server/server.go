@@ -147,6 +147,7 @@ func (s *Server) collectServerInfo(ctx context.Context) error {
 		ClusterName:     clusterInfo.Name,
 		ClusterLocation: clusterInfo.Location,
 		K8sEndpoint:     clusterInfo.Endpoint,
+		Namespace:       os.Getenv("NAMESPACE"),
 		NodeIPs:         nodeIPs,
 		Services:        services,
 		CurrentNode:     currentNodeInfo,

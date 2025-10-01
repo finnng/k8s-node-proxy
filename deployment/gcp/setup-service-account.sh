@@ -6,7 +6,7 @@
 set -e
 
 # Configuration
-PROJECT_ID="$1"
+PROJECT_ID=${PROJECT_ID}
 SERVICE_ACCOUNT_NAME="k8s-node-proxy-sa"
 SERVICE_ACCOUNT_EMAIL="${SERVICE_ACCOUNT_NAME}@${PROJECT_ID}.iam.gserviceaccount.com"
 DISPLAY_NAME="k8s-node-proxy Service Account"
@@ -14,8 +14,7 @@ DESCRIPTION="Service account for k8s-node-proxy to access GKE cluster informatio
 
 # Required roles for k8s-node-proxy
 REQUIRED_ROLES=(
-    "roles/container.clusterViewer"
-    "roles/compute.viewer"
+    "roles/container.viewer"
 )
 
 error() {
@@ -33,7 +32,7 @@ warn() {
 
 # Validate inputs
 if [[ -z "$PROJECT_ID" ]]; then
-    error "PROJECT_ID is required. Usage: $0 <PROJECT_ID>"
+    error "PROJECT_ID is required. Usage: PROJECT_ID=my-project $0"
 fi
 
 # Check if gcloud is installed and authenticated
@@ -69,25 +68,9 @@ for role in "${REQUIRED_ROLES[@]}"; do
         --role="$role" &>/dev/null || warn "Failed to assign role $role (may already exist)"
 done
 
-# Create key file (optional - only if doesn't exist)
-KEY_FILE="$SERVICE_ACCOUNT_NAME-key.json"
-if [[ ! -f "$KEY_FILE" ]]; then
-    info "Creating service account key file: $KEY_FILE"
-    gcloud iam service-accounts keys create "$KEY_FILE" \
-        --iam-account="$SERVICE_ACCOUNT_EMAIL" || error "Failed to create key file"
-
-    warn "IMPORTANT: Store $KEY_FILE securely and never commit it to version control!"
-    echo "export GOOGLE_APPLICATION_CREDENTIALS=$(pwd)/$KEY_FILE" > .env-gcp
-    info "Environment file created: .env-gcp"
-else
-    warn "Key file $KEY_FILE already exists, skipping key creation"
-fi
-
 info "Service account setup completed successfully!"
 echo
 echo "Service Account Email: $SERVICE_ACCOUNT_EMAIL"
-echo "Key File: $KEY_FILE"
 echo
-echo "To use this service account, run:"
-echo "  source .env-gcp"
-echo "  gcloud auth activate-service-account --key-file=$KEY_FILE"
+echo "To use this service account on a VM, ensure the VM has the service account attached:"
+echo "  gcloud compute instances create <instance-name> --service-account=$SERVICE_ACCOUNT_EMAIL --scopes=cloud-platform"

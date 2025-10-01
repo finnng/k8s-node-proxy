@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/container/v1"
@@ -136,7 +137,15 @@ func (d *NodePortDiscovery) DiscoverNodePorts(ctx context.Context) ([]int, error
 func (d *NodePortDiscovery) DiscoverServices(ctx context.Context) ([]ServiceInfo, error) {
 	slog.Info("Obtaining available node ports")
 
-	services, err := d.k8sClientset.CoreV1().Services("").List(ctx, metav1.ListOptions{})
+	// Get namespace from environment variable - required
+	namespace := os.Getenv("NAMESPACE")
+	if namespace == "" {
+		return nil, fmt.Errorf("NAMESPACE environment variable is required")
+	}
+
+	slog.Info("Discovering services in namespace", "namespace", namespace)
+
+	services, err := d.k8sClientset.CoreV1().Services(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list services: %w", err)
 	}

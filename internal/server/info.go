@@ -10,6 +10,7 @@ type ServerInfo struct {
 	ClusterName     string
 	ClusterLocation string
 	K8sEndpoint     string
+	Namespace       string
 	NodeIPs         []string
 	Services        []services.ServiceInfo
 	CurrentNode     *CurrentNodeInfo
