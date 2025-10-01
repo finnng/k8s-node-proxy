@@ -275,22 +275,22 @@ gcloud compute ssh "$VM_NAME" --project="$PROJECT_ID" --zone="$ZONE" --command="
     sudo docker pull --platform=linux/amd64 $SOURCE_IMAGE
 " || error "Failed to pull image from Docker Hub"
 
-# Remove external IP now that image is downloaded
-info "Removing external IP from VM..."
-gcloud compute instances delete-access-config "$VM_NAME" \
-  --zone="$ZONE" \
-  --access-config-name="external-nat" || warn "Failed to remove external IP (may not exist)"
-
 # Wait for service to be ready
 info "Waiting for service to be ready..."
 for i in $(seq 1 15); do
-  if gcloud compute ssh "$VM_NAME" --project="$PROJECT_ID" --zone="$ZONE" --internal-ip --command="curl -s http://localhost:$PROXY_SERVICE_PORT/health" 2>/dev/null | grep "OK"; then
+  if gcloud compute ssh "$VM_NAME" --project="$PROJECT_ID" --zone="$ZONE" --command="curl -s http://localhost:$PROXY_SERVICE_PORT/health" 2>/dev/null | grep "OK"; then
     info "Service is ready"
     break
   fi
   [ $i -eq 15 ] && warn "Service may still be starting"
   sleep 10
 done
+
+# Remove external IP now that service is fully started
+info "Removing external IP from VM..."
+gcloud compute instances delete-access-config "$VM_NAME" \
+  --zone="$ZONE" \
+  --access-config-name="external-nat" || warn "Failed to remove external IP (may not exist)"
 
 info "Deployment completed! Container is running with Container OS."
 
