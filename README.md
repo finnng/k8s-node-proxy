@@ -1,85 +1,204 @@
 # k8s-node-proxy
 
-A lightweight proxy server that automatically discovers Kubernetes NodePort services and forwards traffic to current cluster nodes.
+A lightweight proxy that provides stable endpoints for Kubernetes NodePort services, automatically handling node failures and IP changes.
 
 ![Demo Screenshot](demo_cluster.png)
 
-## The Problem This Solves
+## The Problem
 
-In Kubernetes environments, **NodePort services** expose applications on a static port (30000-32767) across all cluster nodes. However, accessing these services presents challenges:
+NodePort services expose applications on static ports across all cluster nodes, but accessing them is problematic:
 
-### 🔍 **Dynamic Node IPs**
-- **GKE node IPs change** during cluster autoscaling, upgrades, or maintenance
-- **Direct node access** requires constantly updating IP addresses in applications
-- **LoadBalancer services** work but add cost and complexity for internal tools
+**Dynamic infrastructure.** Node IPs change during autoscaling, upgrades, and maintenance. Applications and CI/CD pipelines must constantly update connection strings or fail when nodes are replaced.
 
-### 🎯 **Development & Internal Tools**
-- **CI/CD pipelines** need stable endpoints to run tests against NodePort services
-- **Internal applications** require predictable URLs for service-to-service communication
-- **Development environments** need consistent access points that survive cluster changes
+**Manual workarounds.** Port forwarding works but requires developers to manually establish connections daily. LoadBalancer services add cost and complexity. Direct node access requires constant IP management.
 
-## How k8s-node-proxy Solves This
+**Operational overhead.** Teams waste time running kubectl port-forward commands, tracking node IPs, updating configurations, and debugging connection failures caused by infrastructure changes.
 
-k8s-node-proxy acts as a **stable gateway** that sits outside your Kubernetes cluster and automatically:
+## The Solution
 
-1. **🔍 Discovers NodePort services** in your target namespace via Kubernetes API
-2. **📡 Monitors cluster nodes** and their health status continuously
-3. **🔄 Routes traffic intelligently** to healthy nodes with automatic failover
-4. **⚡ Provides static endpoints** that never change regardless of cluster state
+k8s-node-proxy provides a stable gateway that automatically routes traffic to healthy nodes:
 
-### Architecture Flow
 ```
-External Client → k8s-node-proxy:30001 → healthy-node-ip:30001 → NodePort Service → Pod
+Client → proxy:30001 → healthy-node:30001 → NodePort Service → Pod
 ```
 
-### Key Benefits
-- **🎯 Stable URLs**: Access `proxy-vm:30001` instead of `changing-node-ip:30001`
-- **🔄 Automatic failover**: Routes around unhealthy nodes (45-second max failover)
-- **📊 Real-time monitoring**: Web UI shows cluster status, node health, and service discovery
-- **🛡️ Namespace isolation**: Scoped to specific namespace to avoid port conflicts
-- **⚙️ Zero configuration**: Auto-discovers everything through Kubernetes API
+**Automatic discovery.** Finds all NodePort services in your namespace via Kubernetes API. No manual configuration required.
 
-## Setup
+**Intelligent routing.** Monitors node health continuously and routes to the oldest healthy node for stability. Fails over within 45 seconds when nodes become unhealthy.
 
-### Option 1: Manual Setup
-1. **Deploy on Google Cloud VM** with proper service account permissions (see Requirements below)
-2. **Set environment variables**:
-   - `PROJECT_ID=your-gcp-project` or `GOOGLE_CLOUD_PROJECT=your-gcp-project`
-   - `NAMESPACE=your-target-namespace`
-3. **Run**: `./k8s-node-proxy`
+**Platform agnostic.** Works with GKE, EKS, and any Kubernetes cluster. Supports in-cluster and external deployment models.
 
-### Option 2: Automated GCP Deployment
-See [deployment/gcp/README.md](deployment/gcp/README.md) for VPC-only deployment scripts.
+## Quick Start
 
-The proxy will:
-- Discover all NodePort services in the specified namespace
-- Start listeners on those ports
-- Forward traffic to current cluster nodes automatically
+k8s-node-proxy supports multiple deployment modes:
+
+### GCP/GKE
+```bash
+PROJECT_ID=my-project NAMESPACE=default ./k8s-node-proxy
+```
+
+### AWS/EKS
+```bash
+AWS_REGION=us-east-1 CLUSTER_NAME=my-cluster NAMESPACE=default ./k8s-node-proxy
+```
+
+### Generic Kubernetes (External)
+```bash
+KUBECONFIG=/path/to/config NAMESPACE=default ./k8s-node-proxy
+```
+
+### In-Cluster Deployment
+```bash
+# No configuration needed - automatically detected when running as a pod
+NAMESPACE=default ./k8s-node-proxy
+```
+
+The proxy will discover all NodePort services in the namespace, start listeners, and forward traffic automatically.
 
 ## Configuration
 
-### Required Environment Variables
-- `PROJECT_ID` or `GOOGLE_CLOUD_PROJECT`: GCP project containing the GKE cluster
-- `NAMESPACE`: Kubernetes namespace to discover NodePort services from
+### Platform Detection
 
-### Optional Environment Variables
-- `PROXY_SERVICE_PORT`: Port for the management interface (default: 80)
+The proxy automatically detects your platform based on environment variables:
+
+| Platform | Required Variables | Optional |
+|----------|-------------------|----------|
+| **GCP/GKE** | `PROJECT_ID` or `GOOGLE_CLOUD_PROJECT`, `NAMESPACE` | `PROXY_SERVICE_PORT` |
+| **AWS/EKS** | `AWS_REGION`, `CLUSTER_NAME`, `NAMESPACE` | `PROXY_SERVICE_PORT` |
+| **Generic** | `KUBECONFIG`, `NAMESPACE` | `PROXY_SERVICE_PORT` |
+| **In-Cluster** | `NAMESPACE` | `PROXY_SERVICE_PORT` |
+
+**PROXY_SERVICE_PORT:** Management interface port (default: 80)
 
 ## Requirements
 
-### Google Cloud Permissions
-The application requires a Google Cloud VM with a service account having the following IAM roles:
-- **`roles/container.viewer`**: To discover GKE clusters, access cluster metadata, and list services
-- **Network access**: VM must be able to reach the GKE cluster API server
+### GCP/GKE
+- Service account with `roles/container.viewer`
+- Network access to GKE API server
+- Google Application Default Credentials
 
-### Runtime Dependencies
-- **GKE cluster**: Must be in the same GCP project as the VM
-- **Google Application Default Credentials (ADC)**: Automatically available on GCP VMs
-- **Go 1.24+**: Only required for building from source
+### AWS/EKS
+- IAM role with `eks:DescribeCluster` permission
+- AWS credentials configured (SDK default chain)
+- Network access to EKS API server
 
-### Network Requirements
-- VM must have network connectivity to the GKE cluster API server
-- Outbound HTTPS access to Google Cloud APIs (container.googleapis.com)
+### Generic Kubernetes
+- Valid kubeconfig file
+- Cluster access configured in kubeconfig
+
+### In-Cluster
+- Running as a Kubernetes pod
+- Service account with permissions to list nodes and services
+
+## Contributing
+
+### Prerequisites
+
+- Go 1.24.1 or later
+- Docker or Colima (for integration tests)
+- kind (optional, for local cluster testing): `go install sigs.k8s.io/kind@latest`
+
+### Getting Started
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/your-org/k8s-node-proxy.git
+   cd k8s-node-proxy
+   ```
+
+2. **Install dependencies**
+   ```bash
+   go mod download
+   ```
+
+3. **Build the project**
+   ```bash
+   make build
+   ```
+
+4. **Run tests**
+   ```bash
+   make test
+   ```
+
+### Development Workflow
+
+**Build and run locally:**
+```bash
+make build          # Build binary to bin/k8s-node-proxy
+make run            # Run directly with go run
+make clean          # Remove build artifacts
+```
+
+**Testing:**
+```bash
+make test           # Run all tests (recommended before committing)
+make test-unit      # Unit tests only (30 seconds)
+make test-e2e       # E2E tests with mocks (1 minute)
+make test-e2e-kind  # Full integration test with kind cluster (10-15 minutes)
+```
+
+**Run with race detector:**
+```bash
+go test -race ./...
+```
+
+### Testing Guide
+
+**Quick validation** - Run before every commit:
+```bash
+make test
+```
+
+**Comprehensive validation** - Run before opening a PR:
+```bash
+make test-e2e-kind
+```
+
+The integration test creates a local kind cluster, deploys nginx and the proxy, then validates:
+- Service discovery
+- Request proxying
+- Health monitoring
+- Failover behavior
+- Concurrent request handling
+
+**Prerequisites for integration tests:**
+- Docker or Colima running
+- kind installed: `go install sigs.k8s.io/kind@latest`
+
+### Code Structure
+
+```
+k8s-node-proxy/
+├── cmd/server/          # Entry points and server factories
+├── internal/
+│   ├── platform/        # Platform detection (GCP, AWS, Generic)
+│   ├── nodes/           # Node discovery and health monitoring
+│   ├── services/        # Service discovery
+│   ├── proxy/           # HTTP proxy handler
+│   └── server/          # Server orchestration
+└── test/
+    ├── e2e/             # End-to-end tests
+    ├── mocks/           # Mock servers for testing
+    └── helpers/         # Test utilities
+```
+
+### Submitting Changes
+
+1. Run tests: `make test`
+2. Run integration tests: `make test-e2e-kind`
+3. Ensure code builds: `make build && rm -f bin/k8s-node-proxy`
+4. Create a pull request
+
+### CI/CD
+
+GitHub Actions runs automatically on every push and PR:
+- Unit tests with race detector
+- E2E tests with mocks
+- Integration tests with kind cluster
+- Build verification
+
+Trigger manually: `gh workflow run test.yml`
 
 ## License
 

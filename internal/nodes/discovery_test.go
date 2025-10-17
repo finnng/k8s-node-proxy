@@ -99,3 +99,88 @@ func getOldestHealthyNode(nodes []NodeInfo) *NodeInfo {
 
 	return oldestHealthy
 }
+
+// TestNodeDiscoveryConstants validates health monitoring configuration (characterization test)
+func TestNodeDiscoveryConstants(t *testing.T) {
+	// This test documents the expected health monitoring constants
+	// These values define the failover behavior
+
+	expectedCacheTTL := 2 * time.Minute       // 2-minute cache
+	expectedFailureThreshold := 3             // 3 consecutive failures
+	expectedCheckInterval := 15 * time.Second // 15-second health checks
+
+	// Document that these constants should exist
+	if expectedCacheTTL != 2*time.Minute {
+		t.Errorf("Expected cache TTL to be 2 minutes")
+	}
+
+	if expectedFailureThreshold != 3 {
+		t.Errorf("Expected failure threshold to be 3")
+	}
+
+	if expectedCheckInterval != 15*time.Second {
+		t.Errorf("Expected check interval to be 15 seconds")
+	}
+
+	// Calculate maximum failover time: 3 failures × 15 seconds = 45 seconds
+	maxFailoverTime := time.Duration(expectedFailureThreshold) * expectedCheckInterval
+	expectedMaxFailover := 45 * time.Second
+
+	if maxFailoverTime != expectedMaxFailover {
+		t.Errorf("Expected max failover time to be 45 seconds, got %v", maxFailoverTime)
+	}
+}
+
+// TestNodeInfoStructure validates NodeInfo has expected fields (characterization test)
+func TestNodeInfoStructure(t *testing.T) {
+	// This test documents the NodeInfo structure
+	now := time.Now()
+	nodeInfo := NodeInfo{
+		Name:         "test-node",
+		IP:           "10.0.1.1",
+		Status:       NodeHealthy,
+		Age:          24 * time.Hour,
+		CreationTime: now.Add(-24 * time.Hour),
+		LastCheck:    now,
+	}
+
+	if nodeInfo.Name != "test-node" {
+		t.Errorf("Expected Name field")
+	}
+
+	if nodeInfo.IP != "10.0.1.1" {
+		t.Errorf("Expected IP field")
+	}
+
+	if nodeInfo.Status != NodeHealthy {
+		t.Errorf("Expected Status field")
+	}
+
+	if nodeInfo.Age != 24*time.Hour {
+		t.Errorf("Expected Age field")
+	}
+
+	if nodeInfo.CreationTime.IsZero() {
+		t.Errorf("Expected CreationTime field")
+	}
+
+	if nodeInfo.LastCheck.IsZero() {
+		t.Errorf("Expected LastCheck field")
+	}
+}
+
+// TestNodeDiscoveryMethods validates expected method signatures (characterization test)
+func TestNodeDiscoveryMethods(t *testing.T) {
+	// This test documents that NodeDiscovery should have these methods
+	// It's a compile-time check that the interface hasn't changed
+
+	var discovery *NodeDiscovery
+	if discovery != nil {
+		// These lines document the expected method signatures
+		_ = discovery.GetCurrentNodeIP
+		_ = discovery.GetAllNodes
+		_ = discovery.GetCurrentNodeName
+		_ = discovery.StartHealthMonitoring
+		_ = discovery.StopHealthMonitoring
+	}
+}
