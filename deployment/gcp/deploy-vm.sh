@@ -39,14 +39,12 @@ warn() {
 
 # Cleanup function to remove external IP on exit (success or failure)
 cleanup() {
-  local exit_code=$?
-  
   # Only attempt cleanup if we created a new VM in this script run
   if [[ "$VM_CREATED" == "true" ]]; then
     info "Running cleanup: Removing external IP from VM..."
     
     # Check if VM exists and has an external IP
-    if gcloud compute instances describe "$VM_NAME" --zone="$ZONE" --format="get(networkInterfaces[0].accessConfigs[0].natIP)" 2>/dev/null | grep -q "."; then
+    if gcloud compute instances describe "$VM_NAME" --zone="$ZONE" --format="get(networkInterfaces[0].accessConfigs[0].natIP)" 2>/dev/null | grep -qE '^[0-9]'; then
       if gcloud compute instances delete-access-config "$VM_NAME" \
         --zone="$ZONE" \
         --access-config-name="external-nat" 2>/dev/null; then
@@ -59,12 +57,11 @@ cleanup() {
     fi
   fi
   
-  # Preserve the original exit code
-  exit $exit_code
+  # Exit code is automatically preserved by not using exit/return
 }
 
-# Set trap to run cleanup on exit (both success and failure)
-trap cleanup EXIT
+# Set trap to run cleanup on exit, interruption, and termination
+trap cleanup EXIT INT TERM
 
 # Validate required parameters
 if [[ -z "$PROJECT_ID" ]]; then
