@@ -9,16 +9,18 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"k8s-node-proxy/internal/nodes"
 )
 
+type NodeDiscoveryInterface interface {
+	GetCurrentNodeIP(ctx context.Context) (string, error)
+}
+
 type Handler struct {
-	nodeDiscovery *nodes.NodeDiscovery
+	nodeDiscovery NodeDiscoveryInterface
 	client        *http.Client
 }
 
-func NewHandler(nodeDiscovery *nodes.NodeDiscovery) *Handler {
+func NewHandler(nodeDiscovery NodeDiscoveryInterface) *Handler {
 	return &Handler{
 		nodeDiscovery: nodeDiscovery,
 		client: &http.Client{
