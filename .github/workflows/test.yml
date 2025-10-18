@@ -3,10 +3,10 @@ name: Test Suite
 on:
   # Allow manual trigger
   workflow_dispatch:
-  # Also run on pull requests
+  # Run on pull requests (including new commits pushed to PR)
   pull_request:
     branches: [ main, master ]
-  # And on pushes to main branches
+  # Run on pushes to main/master only
   push:
     branches: [ main, master ]
 

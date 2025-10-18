@@ -1,5 +1,4 @@
-// Package discovery defines interfaces for service and node discoverypackage discovery
-
+// Package discovery defines interfaces for service and node discovery
 package discovery
 
 import (

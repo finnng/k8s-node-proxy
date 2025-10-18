@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 )
 
 // GKEClusterResponse represents a GKE cluster API response
@@ -75,6 +76,5 @@ func NewDefaultMockGKECluster() GKECluster {
 
 // containsPath checks if a URL path contains a substring
 func containsPath(path, substr string) bool {
-	return len(path) >= len(substr) && path[len(path)-len(substr):] == substr ||
-		len(path) > len(substr) && path[:len(path)-len(substr)] != ""
+	return strings.Contains(path, substr)
 }

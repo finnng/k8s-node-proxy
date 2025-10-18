@@ -19,7 +19,11 @@ Comprehensive automated testing workflow that runs:
    - Choose branch and run
 
 2. **Pull Requests** to main/master
-3. **Pushes** to main/master
+   - Runs when PR is opened
+   - **Automatically re-runs when new commits are pushed to the PR branch** ✅
+
+3. **Pushes** to main/master branches only
+   - Does NOT run on feature branches before PR is opened
 
 ### Jobs
 

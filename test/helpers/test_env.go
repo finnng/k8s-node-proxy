@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 )
 
 // TestEnv manages test environment setup and teardown
@@ -46,4 +47,4 @@ func (e *TestEnv) Context() context.Context {
 	return ctx
 }
 
-const testTimeout = 30 // seconds
+const testTimeout = 30 * time.Second
