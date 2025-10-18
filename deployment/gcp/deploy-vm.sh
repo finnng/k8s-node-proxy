@@ -21,6 +21,9 @@ NAMESPACE=${NAMESPACE:-""}
 NETWORK=${NETWORK:-""}
 SUBNET=${SUBNET:-""}
 
+# Track whether we created a new VM (for cleanup purposes)
+VM_CREATED=false
+
 error() {
   echo "ERROR: $1" >&2
   exit 1
@@ -33,6 +36,32 @@ info() {
 warn() {
   echo "WARN: $1"
 }
+
+# Cleanup function to remove external IP on exit (success or failure)
+cleanup() {
+  # Only attempt cleanup if we created a new VM in this script run
+  if [[ "$VM_CREATED" == "true" ]]; then
+    info "Running cleanup: Removing external IP from VM..."
+    
+    # Check if VM exists and has an external IP
+    if gcloud compute instances describe "$VM_NAME" --zone="$ZONE" --format="get(networkInterfaces[0].accessConfigs[0].natIP)" 2>/dev/null | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+      if gcloud compute instances delete-access-config "$VM_NAME" \
+        --zone="$ZONE" \
+        --access-config-name="external-nat" 2>/dev/null; then
+        info "External IP removed successfully"
+      else
+        warn "Failed to remove external IP"
+      fi
+    else
+      info "No external IP found on VM (may have been removed already)"
+    fi
+  fi
+  
+  # Exit code is automatically preserved by not using exit/return
+}
+
+# Set trap to run cleanup on exit, interruption, and termination
+trap cleanup EXIT INT TERM
 
 # Validate required parameters
 if [[ -z "$PROJECT_ID" ]]; then
@@ -247,6 +276,10 @@ else
     --image-project=cos-cloud || error "Failed to create VM"
 fi
 
+# Mark that we created a new VM (for cleanup purposes)
+VM_CREATED=true
+info "VM created successfully, external IP will be removed after setup"
+
 # Wait for VM to be ready
 info "Waiting for VM to start..."
 for i in $(seq 1 30); do
@@ -286,13 +319,8 @@ for i in $(seq 1 15); do
   sleep 10
 done
 
-# Remove external IP now that service is fully started
-info "Removing external IP from VM..."
-gcloud compute instances delete-access-config "$VM_NAME" \
-  --zone="$ZONE" \
-  --access-config-name="external-nat" || warn "Failed to remove external IP (may not exist)"
-
-info "Deployment completed! Container is running with Container OS."
+# External IP will be removed by cleanup trap
+info "Setup completed successfully!"
 
 # Get internal IP
 INTERNAL_IP=$(gcloud compute instances describe "$VM_NAME" \
