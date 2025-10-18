@@ -44,7 +44,7 @@ cleanup() {
     info "Running cleanup: Removing external IP from VM..."
     
     # Check if VM exists and has an external IP
-    if gcloud compute instances describe "$VM_NAME" --zone="$ZONE" --format="get(networkInterfaces[0].accessConfigs[0].natIP)" 2>/dev/null | grep -qE '^[0-9]'; then
+    if gcloud compute instances describe "$VM_NAME" --zone="$ZONE" --format="get(networkInterfaces[0].accessConfigs[0].natIP)" 2>/dev/null | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
       if gcloud compute instances delete-access-config "$VM_NAME" \
         --zone="$ZONE" \
         --access-config-name="external-nat" 2>/dev/null; then
