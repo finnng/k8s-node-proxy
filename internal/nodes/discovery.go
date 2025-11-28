@@ -115,7 +115,6 @@ func (d *NodeDiscovery) GetCurrentNodeIP(ctx context.Context) (string, error) {
 }
 
 func (d *NodeDiscovery) discoverNodeIP(ctx context.Context) (string, error) {
-	// Get all nodes with metadata
 	nodeInfos, err := d.getAllNodesWithMetadata(ctx)
 	if err != nil {
 		return "", err
@@ -125,23 +124,19 @@ func (d *NodeDiscovery) discoverNodeIP(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("no nodes found in cluster")
 	}
 
-	// Cache the node list for other operations
-	d.cachedNodes = nodeInfos
-
-	// Find oldest healthy node
 	oldestNode := d.findOldestHealthyNode(nodeInfos)
 	if oldestNode == nil {
-		// If no healthy nodes, fall back to oldest node regardless of status
 		oldestNode = &nodeInfos[0]
 	}
 
-	// Set current node name for health monitoring
+	d.mutex.Lock()
+	d.cachedNodes = nodeInfos
 	d.currentNodeName = oldestNode.Name
+	d.mutex.Unlock()
 
 	return oldestNode.IP, nil
 }
 
-// getAllNodesWithMetadata retrieves all cluster nodes with complete metadata
 func (d *NodeDiscovery) getAllNodesWithMetadata(ctx context.Context) ([]NodeInfo, error) {
 	nodes, err := d.k8sClientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
@@ -154,10 +149,9 @@ func (d *NodeDiscovery) getAllNodesWithMetadata(ctx context.Context) ([]NodeInfo
 	for _, node := range nodes.Items {
 		nodeIP := getNodeInternalIP(node)
 		if nodeIP == "" {
-			continue // Skip nodes without internal IP
+			continue
 		}
 
-		// Determine node status from conditions
 		status := getNodeStatus(node)
 
 		nodeInfo := NodeInfo{
@@ -172,7 +166,6 @@ func (d *NodeDiscovery) getAllNodesWithMetadata(ctx context.Context) ([]NodeInfo
 		nodeInfos = append(nodeInfos, nodeInfo)
 	}
 
-	// Sort by age (oldest first)
 	sort.Slice(nodeInfos, func(i, j int) bool {
 		return nodeInfos[i].CreationTime.Before(nodeInfos[j].CreationTime)
 	})
@@ -180,9 +173,6 @@ func (d *NodeDiscovery) getAllNodesWithMetadata(ctx context.Context) ([]NodeInfo
 	return nodeInfos, nil
 }
 
-// getNodeStatus is now in common.go (shared across all platforms)
-
-// findOldestHealthyNode selects the oldest node that is healthy
 func (d *NodeDiscovery) findOldestHealthyNode(nodes []NodeInfo) *NodeInfo {
 	for i := range nodes {
 		if nodes[i].Status == NodeHealthy {
@@ -192,7 +182,6 @@ func (d *NodeDiscovery) findOldestHealthyNode(nodes []NodeInfo) *NodeInfo {
 	return nil
 }
 
-// GetAllNodes returns cached node information
 func (d *NodeDiscovery) GetAllNodes(ctx context.Context) ([]NodeInfo, error) {
 	d.mutex.RLock()
 	if len(d.cachedNodes) > 0 && time.Since(d.cacheTime) < d.cacheTTL {
@@ -203,7 +192,6 @@ func (d *NodeDiscovery) GetAllNodes(ctx context.Context) ([]NodeInfo, error) {
 	}
 	d.mutex.RUnlock()
 
-	// Refresh cache if stale
 	nodes, err := d.getAllNodesWithMetadata(ctx)
 	if err != nil {
 		return nil, err
@@ -217,15 +205,11 @@ func (d *NodeDiscovery) GetAllNodes(ctx context.Context) ([]NodeInfo, error) {
 	return nodes, nil
 }
 
-// getNodeInternalIP is now in common.go (shared across all platforms)
-
-// findOldestNode returns the node with the earliest creation timestamp
 func findOldestNode(nodes []corev1.Node) corev1.Node {
 	if len(nodes) == 0 {
 		return corev1.Node{}
 	}
 
-	// Sort nodes by creation time (oldest first)
 	sort.Slice(nodes, func(i, j int) bool {
 		return nodes[i].CreationTimestamp.Before(&nodes[j].CreationTimestamp)
 	})
@@ -233,9 +217,7 @@ func findOldestNode(nodes []corev1.Node) corev1.Node {
 	return nodes[0]
 }
 
-// buildK8sConfig creates Kubernetes client configuration
 func buildK8sConfig(ctx context.Context, containerSvc *container.Service, projectID string) (*rest.Config, interface{}, error) {
-	// Get the first cluster in the project
 	clusters, err := containerSvc.Projects.Locations.Clusters.List(
 		fmt.Sprintf("projects/%s/locations/-", projectID)).Context(ctx).Do()
 	if err != nil {
@@ -248,26 +230,22 @@ func buildK8sConfig(ctx context.Context, containerSvc *container.Service, projec
 
 	cluster := clusters.Clusters[0]
 
-	// Use private endpoint for internal VPC connectivity
 	if cluster.PrivateClusterConfig == nil || cluster.PrivateClusterConfig.PrivateEndpoint == "" {
 		return nil, nil, fmt.Errorf("cluster %s does not have a private endpoint configured", cluster.Name)
 	}
 	endpoint := cluster.PrivateClusterConfig.PrivateEndpoint
 	fmt.Printf("Using private cluster endpoint: %s\n", endpoint)
 
-	// Decode cluster CA certificate
 	caCert, err := base64.StdEncoding.DecodeString(cluster.MasterAuth.ClusterCaCertificate)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to decode cluster CA certificate: %w", err)
 	}
 
-	// Get Google default token source (uses ADC)
 	tokenSource, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get default token source: %w", err)
 	}
 
-	// Build Kubernetes config with auto-refreshing token
 	config := &rest.Config{
 		Host: "https://" + endpoint,
 		TLSClientConfig: rest.TLSClientConfig{
@@ -284,52 +262,47 @@ func buildK8sConfig(ctx context.Context, containerSvc *container.Service, projec
 	return config, nil, nil
 }
 
-// StartHealthMonitoring begins monitoring the current node's health
 func (d *NodeDiscovery) StartHealthMonitoring() {
 	go d.healthMonitorLoop()
 }
 
-// StopHealthMonitoring gracefully stops the health monitoring
 func (d *NodeDiscovery) StopHealthMonitoring() {
 	if d.cancel != nil {
 		d.cancel()
 	}
 }
 
-// healthMonitorLoop runs the periodic health check
 func (d *NodeDiscovery) healthMonitorLoop() {
 	ticker := time.NewTicker(d.checkInterval)
 	defer ticker.Stop()
+	defer fmt.Println("Health monitoring stopped")
 
 	for {
 		select {
+		case <-d.ctx.Done():
+			fmt.Println("Health monitoring received stop signal")
+			return
 		case <-ticker.C:
 			d.performHealthCheck()
-		case <-d.ctx.Done():
-			return
 		}
 	}
 }
 
-// performHealthCheck checks current node health and handles failover
 func (d *NodeDiscovery) performHealthCheck() {
 	d.mutex.RLock()
 	currentNodeName := d.currentNodeName
 	d.mutex.RUnlock()
 
 	if currentNodeName == "" {
-		// No current node set, skip health check
 		return
 	}
 
 	now := time.Now()
 	isHealthy := d.isCurrentNodeHealthy(currentNodeName)
 
-	// Update the LastCheck time for current node in cached list
 	d.updateCurrentNodeLastCheck(currentNodeName, now, isHealthy)
 
 	if isHealthy {
-		// Reset failure count on successful check
 		d.mutex.Lock()
 		d.failureCount = 0
 		d.mutex.Unlock()
@@ -338,7 +311,6 @@ func (d *NodeDiscovery) performHealthCheck() {
 	}
 }
 
-// updateCurrentNodeLastCheck updates the LastCheck time for the current node
 func (d *NodeDiscovery) updateCurrentNodeLastCheck(nodeName string, lastCheck time.Time, isHealthy bool) {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
@@ -356,7 +328,6 @@ func (d *NodeDiscovery) updateCurrentNodeLastCheck(nodeName string, lastCheck ti
 	}
 }
 
-// isCurrentNodeHealthy checks if the current node is healthy using Kubernetes API
 func (d *NodeDiscovery) isCurrentNodeHealthy(nodeName string) bool {
 	node, err := d.k8sClientset.CoreV1().Nodes().Get(d.ctx, nodeName, metav1.GetOptions{})
 	if err != nil {
@@ -372,7 +343,6 @@ func (d *NodeDiscovery) isCurrentNodeHealthy(nodeName string) bool {
 	return false
 }
 
-// handleNodeFailure manages failure counting and triggers failover if needed
 func (d *NodeDiscovery) handleNodeFailure() {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
@@ -384,24 +354,20 @@ func (d *NodeDiscovery) handleNodeFailure() {
 		fmt.Printf("Node %s failed %d consecutive health checks, initiating failover\n",
 			d.currentNodeName, d.failureThreshold)
 		d.performFailover()
-		d.failureCount = 0 // Reset after failover
+		d.failureCount = 0
 	}
 }
 
-// performFailover switches to the next best available node
 func (d *NodeDiscovery) performFailover() {
-	// Clear cache to force fresh discovery
 	d.cachedIP = ""
 	d.cacheTime = time.Time{}
 
-	// Get fresh node list
 	nodes, err := d.getAllNodesWithMetadata(d.ctx)
 	if err != nil {
 		fmt.Printf("Failed to get nodes for failover: %v\n", err)
 		return
 	}
 
-	// Find next best node (oldest healthy, excluding current failed node)
 	for _, node := range nodes {
 		if node.Name != d.currentNodeName && node.Status == NodeHealthy {
 			d.cachedIP = node.IP
@@ -415,7 +381,6 @@ func (d *NodeDiscovery) performFailover() {
 	fmt.Printf("Warning: No healthy nodes found for failover\n")
 }
 
-// GetCurrentNodeName returns the name of the currently selected node
 func (d *NodeDiscovery) GetCurrentNodeName() string {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()

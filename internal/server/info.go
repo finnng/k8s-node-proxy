@@ -16,9 +16,3 @@ type ServerInfo struct {
 	CurrentNode     *CurrentNodeInfo
 	AllNodes        []nodes.NodeInfo
 }
-
-type CurrentNodeInfo struct {
-	Name   string
-	IP     string
-	Status string
-}

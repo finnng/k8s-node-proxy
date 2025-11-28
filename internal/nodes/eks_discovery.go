@@ -200,10 +200,12 @@ func (d *EKSNodeDiscovery) StopHealthMonitoring() {
 func (d *EKSNodeDiscovery) healthMonitorLoop() {
 	ticker := time.NewTicker(15 * time.Second) // Same interval as GKE
 	defer ticker.Stop()
+	defer slog.Info("EKS health monitoring stopped")
 
 	for {
 		select {
 		case <-d.monitorCtx.Done():
+			slog.Info("EKS health monitoring received stop signal")
 			return
 		case <-ticker.C:
 			d.performHealthCheck()
@@ -213,7 +215,8 @@ func (d *EKSNodeDiscovery) healthMonitorLoop() {
 
 // performHealthCheck checks the health of the current node
 func (d *EKSNodeDiscovery) performHealthCheck() {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Use monitoring context with timeout to respect shutdown signals
+	ctx, cancel := context.WithTimeout(d.monitorCtx, 10*time.Second)
 	defer cancel()
 
 	d.mutex.RLock()

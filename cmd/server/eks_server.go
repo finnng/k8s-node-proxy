@@ -13,101 +13,9 @@ import (
 
 	"k8s-node-proxy/internal/nodes"
 	"k8s-node-proxy/internal/proxy"
+	"k8s-node-proxy/internal/server"
 	"k8s-node-proxy/internal/services"
 )
-
-const eksHomepageTemplate = `
-<!DOCTYPE html>
-<html>
-<head>
-    <title>k8s-node-proxy - EKS</title>
-    <style>
-        body { font-family: Arial, sans-serif; margin: 40px; }
-        table { border-collapse: collapse; width: 100%; margin: 20px 0; }
-        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
-        th { background-color: #f2f2f2; }
-        .section { margin: 30px 0; }
-        h1 { color: #333; }
-        h2 { color: #666; }
-        .status-healthy { background-color: #d4edda; padding: 4px 8px; border-radius: 4px; }
-        .status-unhealthy { background-color: #f8d7da; padding: 4px 8px; border-radius: 4px; }
-        .status-unknown { background-color: #fff3cd; padding: 4px 8px; border-radius: 4px; }
-        .info-text { font-size: 12px; color: #666; font-style: italic; margin-top: 8px; line-height: 1.4; }
-    </style>
-</head>
-<body>
-    <h1>k8s-node-proxy Server (Amazon EKS)</h1>
-
-    <div class="section">
-        <h2>Cluster Information</h2>
-        <table>
-            <tr><th>Property</th><th>Value</th></tr>
-            <tr><td>AWS Region</td><td>{{.AWSRegion}}</td></tr>
-            <tr><td>Cluster Name</td><td>{{.ClusterName}}</td></tr>
-            <tr><td>Kubernetes Endpoint</td><td>{{.K8sEndpoint}}</td></tr>
-            <tr><td>Target Namespace</td><td>{{.Namespace}}</td></tr>
-        </table>
-    </div>
-
-    <div class="section">
-        <h2>Current Active Node</h2>
-        {{if .CurrentNode}}
-        <table>
-            <tr><th>Property</th><th>Value</th></tr>
-            <tr><td>Node Name</td><td>{{.CurrentNode.Name}}</td></tr>
-            <tr><td>IP Address</td><td>{{.CurrentNode.IP}}</td></tr>
-            <tr><td>Status</td><td>{{.CurrentNode.Status}}</td></tr>
-        </table>
-        {{else}}
-        <p>No current node selected</p>
-        {{end}}
-        <div class="info-text">
-            Node behavior: Health checks every 15 seconds. Failover after 3 consecutive failures to oldest healthy node (max 45 seconds).
-            Node list refreshes every 2 minutes for display only - active node remains stable unless unhealthy.
-        </div>
-    </div>
-
-    <div class="section">
-        <h2>All Cluster Nodes</h2>
-        <table>
-            <tr><th>Node Name</th><th>IP Address</th><th>Status</th><th>Age</th><th>Last Check</th></tr>
-            {{range .AllNodes}}
-            <tr>
-                <td>{{.Name}}</td>
-                <td>{{.IP}}</td>
-                <td>
-                    {{if eq .Status 0}}<span class="status-healthy">Healthy</span>{{else if eq .Status 1}}<span class="status-unhealthy">Unhealthy</span>{{else}}<span class="status-unknown">Unknown</span>{{end}}
-                </td>
-                <td>{{printf "%.0f" .Age.Hours}}h</td>
-                <td>{{.LastCheck.Format "15:04:05"}}</td>
-            </tr>
-            {{end}}
-        </table>
-    </div>
-
-    <div class="section">
-        <h2>NodePort Services ({{.Namespace}} namespace)</h2>
-        <table>
-            <tr><th>Service</th><th>Namespace</th><th>NodePort</th><th>TargetPort</th><th>Protocol</th></tr>
-            {{range .Services}}
-            <tr>
-                <td>{{.Name}}</td>
-                <td>{{.Namespace}}</td>
-                <td>{{.NodePort}}</td>
-                <td>{{.TargetPort}}</td>
-                <td>{{.Protocol}}</td>
-            </tr>
-            {{end}}
-        </table>
-    </div>
-
-    <div class="section">
-        <p><strong>Proxy Status:</strong> Active and forwarding traffic to current cluster nodes</p>
-        <p><strong>Health Check:</strong> <a href="/health">/health</a></p>
-    </div>
-</body>
-</html>
-`
 
 // EKSServerInfo contains information about the EKS server and cluster
 type EKSServerInfo struct {
@@ -117,7 +25,7 @@ type EKSServerInfo struct {
 	Namespace   string
 	NodeIPs     []string
 	Services    []services.ServiceInfo
-	CurrentNode *CurrentNodeInfo
+	CurrentNode *server.CurrentNodeInfo
 	AllNodes    []nodes.NodeInfo
 }
 
@@ -184,6 +92,15 @@ func (s *EKSServer) Run() error {
 		slog.Error("Failed to start homepage service port", "port", s.servicePort, "error", err)
 	}
 
+	// Trigger initial node selection (with timeout to prevent hanging)
+	nodeCtx, nodeCancel := context.WithTimeout(ctx, 10*time.Second)
+	if _, err := s.nodeIPDiscovery.GetCurrentNodeIP(nodeCtx); err != nil {
+		slog.Warn("Failed to select initial node, will retry via health monitoring", "error", err)
+	} else {
+		slog.Info("Initial node selected", "node", s.nodeIPDiscovery.GetCurrentNodeName())
+	}
+	nodeCancel()
+
 	// Start health monitoring for node IP discovery
 	s.nodeIPDiscovery.StartHealthMonitoring()
 	slog.Info("Started node health monitoring")
@@ -208,15 +125,17 @@ func (s *EKSServer) Run() error {
 	slog.Info("k8s-node-proxy server started successfully for EKS", "service_port", s.servicePort)
 
 	<-c
-	slog.Info("Shutting down server...")
+	slog.Info("Shutting down EKS server...")
 
 	// Stop health monitoring
+	slog.Info("Stopping health monitoring...")
 	s.nodeIPDiscovery.StopHealthMonitoring()
 
 	// Stop all ports
+	slog.Info("Health monitoring stopped, stopping port listeners...")
 	s.portManager.StopAll()
 
-	slog.Info("Server shutdown complete")
+	slog.Info("EKS server shutdown complete")
 	return nil
 }
 
@@ -259,14 +178,20 @@ func (s *EKSServer) collectServerInfo(ctx context.Context) error {
 func (s *EKSServer) createServiceHandler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Homepage
-	mux.HandleFunc("/", s.handleHomepage)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if path == "/" {
+			s.handleHomepage(w, r)
+			return
+		}
+		if path == "/health" {
+			s.handleHealth(w, r)
+			return
+		}
 
-	// Info endpoint
-	mux.HandleFunc("/info", s.handleInfo)
-
-	// Health endpoint
-	mux.HandleFunc("/health", s.handleHealth)
+		// Block all other requests on service port - DO NOT proxy them!
+		http.Error(w, fmt.Sprintf("Not Found - This is the management interface on port %d", s.servicePort), http.StatusNotFound)
+	})
 
 	return mux
 }
@@ -277,11 +202,9 @@ func (s *EKSServer) handleHomepage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create a context with timeout to prevent hanging on API calls
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	// Get fresh node data for display
 	allNodes, err := s.nodeIPDiscovery.GetAllNodes(ctx)
 	if err != nil {
 		slog.Error("Failed to get current node data for homepage", "error", err)
@@ -289,66 +212,56 @@ func (s *EKSServer) handleHomepage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get current node info
 	currentNodeName := s.nodeIPDiscovery.GetCurrentNodeName()
 	currentNodeIP, _ := s.nodeIPDiscovery.GetCurrentNodeIP(ctx)
 
-	var currentNodeInfo *CurrentNodeInfo
+	var currentNodeInfo *server.CurrentNodeInfo
 	if currentNodeName != "" {
-		currentNodeInfo = &CurrentNodeInfo{
+		currentNodeInfo = &server.CurrentNodeInfo{
 			Name:   currentNodeName,
 			IP:     currentNodeIP,
 			Status: "healthy",
 		}
 	}
 
-	// Create fresh server info with updated node data
-	freshServerInfo := *s.serverInfo
-	freshServerInfo.AllNodes = allNodes
-	freshServerInfo.CurrentNode = currentNodeInfo
+	clusterInfo := []server.ClusterInfoField{
+		{Key: "AWS Region", Value: s.serverInfo.AWSRegion},
+		{Key: "Cluster Name", Value: s.serverInfo.ClusterName},
+		{Key: "Kubernetes Endpoint", Value: s.serverInfo.K8sEndpoint},
+		{Key: "Target Namespace", Value: s.serverInfo.Namespace},
+	}
 
-	tmpl, err := template.New("homepage").Parse(eksHomepageTemplate)
+	data := server.HomepageData{
+		PlatformName: "Amazon EKS",
+		ClusterInfo:  clusterInfo,
+		Namespace:    s.serverInfo.Namespace,
+		CurrentNode:  currentNodeInfo,
+		AllNodes:     allNodes,
+		Services:     s.serverInfo.Services,
+	}
+
+	tmpl, err := template.New("homepage").Parse(server.HomepageTemplate)
 	if err != nil {
 		http.Error(w, "Template error", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	if err := tmpl.Execute(w, &freshServerInfo); err != nil {
+	if err := tmpl.Execute(w, &data); err != nil {
 		http.Error(w, "Template execution error", http.StatusInternalServerError)
 		return
 	}
 }
 
-func (s *EKSServer) handleInfo(w http.ResponseWriter, r *http.Request) {
-	if s.serverInfo == nil {
-		http.Error(w, "Server info not available", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-
-	info := fmt.Sprintf(`{
-		"aws_region": "%s",
-		"cluster_name": "%s",
-		"k8s_endpoint": "%s",
-		"namespace": "%s",
-		"node_count": %d,
-		"service_count": %d
-	}`,
-		s.serverInfo.AWSRegion,
-		s.serverInfo.ClusterName,
-		s.serverInfo.K8sEndpoint,
-		s.serverInfo.Namespace,
-		len(s.serverInfo.AllNodes),
-		len(s.serverInfo.Services))
-
-	w.Write([]byte(info))
-}
-
 func (s *EKSServer) handleHealth(w http.ResponseWriter, r *http.Request) {
+	currentNodeName := s.nodeIPDiscovery.GetCurrentNodeName()
+
+	response := fmt.Sprintf(`{
+		"proxy_server": "healthy",
+		"current_node_name": "%s"
+	}`, currentNodeName)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status": "healthy"}`))
+	w.Write([]byte(response))
 }

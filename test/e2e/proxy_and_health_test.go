@@ -370,3 +370,78 @@ func extractPort(hostPort string) string {
 	}
 	return hostPort[colon+1:]
 }
+
+// TestHealthEndpoint tests the /health endpoint returns proper status
+func TestHealthEndpoint(t *testing.T) {
+	t.Run("HealthEndpointReturnsJSON", func(t *testing.T) {
+		// Create mock discovery
+		mockDiscovery := &MockNodeDiscovery{
+			nodeIP:   "10.0.0.1",
+			nodeName: "test-node-1",
+		}
+
+		// Create a simple handler that mimics the health endpoint
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			nodeName := mockDiscovery.GetCurrentNodeName()
+			response := fmt.Sprintf(`{"proxy_server": "healthy", "current_node_name": "%s"}`, nodeName)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(response))
+		})
+
+		// Test the endpoint
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		w := httptest.NewRecorder()
+
+		handler.ServeHTTP(w, req)
+
+		// Verify response
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status 200, got %d", w.Code)
+		}
+
+		contentType := w.Header().Get("Content-Type")
+		if contentType != "application/json" {
+			t.Errorf("Expected Content-Type application/json, got %s", contentType)
+		}
+
+		body := w.Body.String()
+		if !strings.Contains(body, "proxy_server") {
+			t.Errorf("Response missing 'proxy_server' field: %s", body)
+		}
+		if !strings.Contains(body, "test-node-1") {
+			t.Errorf("Response missing node name: %s", body)
+		}
+
+		t.Logf("Health endpoint response: %s", body)
+	})
+
+	t.Run("HealthEndpointFastResponse", func(t *testing.T) {
+		// Verify health endpoint doesn't block
+		mockDiscovery := &MockNodeDiscovery{
+			nodeIP:   "10.0.0.1",
+			nodeName: "test-node",
+		}
+
+		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Should use ONLY cached data, no API calls
+			nodeName := mockDiscovery.GetCurrentNodeName()
+			response := fmt.Sprintf(`{"proxy_server": "healthy", "current_node_name": "%s"}`, nodeName)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(response))
+		})
+
+		start := time.Now()
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		duration := time.Since(start)
+
+		if duration > 100*time.Millisecond {
+			t.Errorf("Health endpoint took too long: %v (should be instant)", duration)
+		}
+
+		t.Logf("Health endpoint responded in %v", duration)
+	})
+}

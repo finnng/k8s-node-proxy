@@ -47,7 +47,6 @@ func NewGenericNodeDiscovery(k8sClientset *kubernetes.Clientset) (*GenericNodeDi
 	}, nil
 }
 
-// GetCurrentNodeIP returns the IP address of the currently selected node
 func (d *GenericNodeDiscovery) GetCurrentNodeIP(ctx context.Context) (string, error) {
 	d.mutex.RLock()
 	if d.currentNodeIP != "" && time.Since(d.lastCheck) < 30*time.Second {
@@ -57,22 +56,18 @@ func (d *GenericNodeDiscovery) GetCurrentNodeIP(ctx context.Context) (string, er
 	}
 	d.mutex.RUnlock()
 
-	// Need to discover/select a node
 	return d.discoverNodeIP(ctx)
 }
 
-// discoverNodeIP discovers and selects the best node, returning its IP
 func (d *GenericNodeDiscovery) discoverNodeIP(ctx context.Context) (string, error) {
 	d.mutex.Lock()
-	defer d.mutex.Unlock()
-
-	// Check if we have a cached node that's still valid
 	if d.currentNodeIP != "" && time.Since(d.cacheTime) < d.cacheTTL {
 		d.lastCheck = time.Now()
+		d.mutex.Unlock()
 		return d.currentNodeIP, nil
 	}
+	d.mutex.Unlock()
 
-	// Get all nodes with metadata
 	nodes, err := d.getAllNodesWithMetadata(ctx)
 	if err != nil {
 		return "", fmt.Errorf("failed to get nodes: %w", err)
@@ -82,30 +77,28 @@ func (d *GenericNodeDiscovery) discoverNodeIP(ctx context.Context) (string, erro
 		return "", fmt.Errorf("no nodes found in cluster")
 	}
 
-	// Find the oldest healthy node
 	selectedNode := d.findOldestHealthyNode(nodes)
 	if selectedNode == nil {
 		return "", fmt.Errorf("no healthy nodes found")
 	}
 
-	// Update current node
+	d.mutex.Lock()
 	d.currentNodeName = selectedNode.Name
 	d.currentNodeIP = selectedNode.IP
 	d.cacheTime = time.Now()
 	d.lastCheck = time.Now()
 	d.failureCount = 0
+	d.mutex.Unlock()
 
 	slog.Info("Selected node for proxying",
-		"node", d.currentNodeName,
-		"ip", d.currentNodeIP,
+		"node", selectedNode.Name,
+		"ip", selectedNode.IP,
 		"age", selectedNode.Age)
 
-	return d.currentNodeIP, nil
+	return selectedNode.IP, nil
 }
 
-// getAllNodesWithMetadata retrieves all nodes with their metadata
 func (d *GenericNodeDiscovery) getAllNodesWithMetadata(ctx context.Context) ([]NodeInfo, error) {
-	// Check cache first
 	d.mutex.RLock()
 	if len(d.cachedNodes) > 0 && time.Since(d.cacheTime) < d.cacheTTL {
 		nodes := make([]NodeInfo, len(d.cachedNodes))
@@ -115,7 +108,6 @@ func (d *GenericNodeDiscovery) getAllNodesWithMetadata(ctx context.Context) ([]N
 	}
 	d.mutex.RUnlock()
 
-	// Fetch from API
 	nodeList, err := d.k8sClientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list nodes: %w", err)
@@ -127,7 +119,6 @@ func (d *GenericNodeDiscovery) getAllNodesWithMetadata(ctx context.Context) ([]N
 		nodes = append(nodes, nodeInfo)
 	}
 
-	// Update cache
 	d.mutex.Lock()
 	d.cachedNodes = make([]NodeInfo, len(nodes))
 	copy(d.cachedNodes, nodes)
@@ -138,12 +129,10 @@ func (d *GenericNodeDiscovery) getAllNodesWithMetadata(ctx context.Context) ([]N
 	return nodes, nil
 }
 
-// nodeToNodeInfo converts a Kubernetes node to NodeInfo
 func (d *GenericNodeDiscovery) nodeToNodeInfo(node *corev1.Node) NodeInfo {
 	creationTime := node.CreationTimestamp.Time
 	age := time.Since(creationTime)
 
-	// Determine status
 	status := NodeUnknown
 	for _, condition := range node.Status.Conditions {
 		if condition.Type == corev1.NodeReady {
@@ -156,7 +145,6 @@ func (d *GenericNodeDiscovery) nodeToNodeInfo(node *corev1.Node) NodeInfo {
 		}
 	}
 
-	// Get external IP
 	var externalIP string
 	for _, addr := range node.Status.Addresses {
 		if addr.Type == corev1.NodeExternalIP {
@@ -165,7 +153,6 @@ func (d *GenericNodeDiscovery) nodeToNodeInfo(node *corev1.Node) NodeInfo {
 		}
 	}
 
-	// Fall back to internal IP if no external IP
 	if externalIP == "" {
 		for _, addr := range node.Status.Addresses {
 			if addr.Type == corev1.NodeInternalIP {
@@ -185,7 +172,6 @@ func (d *GenericNodeDiscovery) nodeToNodeInfo(node *corev1.Node) NodeInfo {
 	}
 }
 
-// findOldestHealthyNode finds the oldest healthy node from the list
 func (d *GenericNodeDiscovery) findOldestHealthyNode(nodes []NodeInfo) *NodeInfo {
 	var healthyNodes []NodeInfo
 	for _, node := range nodes {
@@ -198,7 +184,6 @@ func (d *GenericNodeDiscovery) findOldestHealthyNode(nodes []NodeInfo) *NodeInfo
 		return nil
 	}
 
-	// Sort by creation time (oldest first)
 	sort.Slice(healthyNodes, func(i, j int) bool {
 		return healthyNodes[i].CreationTime.Before(healthyNodes[j].CreationTime)
 	})
@@ -206,12 +191,10 @@ func (d *GenericNodeDiscovery) findOldestHealthyNode(nodes []NodeInfo) *NodeInfo
 	return &healthyNodes[0]
 }
 
-// GetAllNodes returns all nodes in the cluster
 func (d *GenericNodeDiscovery) GetAllNodes(ctx context.Context) ([]NodeInfo, error) {
 	return d.getAllNodesWithMetadata(ctx)
 }
 
-// StartHealthMonitoring starts the health monitoring goroutine
 func (d *GenericNodeDiscovery) StartHealthMonitoring() {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
@@ -225,7 +208,6 @@ func (d *GenericNodeDiscovery) StartHealthMonitoring() {
 	slog.Info("Started health monitoring for Generic Kubernetes nodes")
 }
 
-// StopHealthMonitoring stops the health monitoring
 func (d *GenericNodeDiscovery) StopHealthMonitoring() {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
@@ -241,14 +223,15 @@ func (d *GenericNodeDiscovery) StopHealthMonitoring() {
 	slog.Info("Stopped health monitoring for Generic Kubernetes nodes")
 }
 
-// healthMonitorLoop runs the health monitoring loop
 func (d *GenericNodeDiscovery) healthMonitorLoop() {
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
+	defer slog.Info("Generic health monitoring stopped")
 
 	for {
 		select {
 		case <-d.monitorCtx.Done():
+			slog.Info("Generic health monitoring received stop signal")
 			return
 		case <-ticker.C:
 			d.performHealthCheck()
@@ -256,27 +239,25 @@ func (d *GenericNodeDiscovery) healthMonitorLoop() {
 	}
 }
 
-// performHealthCheck checks the health of the current node
 func (d *GenericNodeDiscovery) performHealthCheck() {
 	d.mutex.Lock()
-	defer d.mutex.Unlock()
+	nodeName := d.currentNodeName
+	d.mutex.Unlock()
 
-	if d.currentNodeName == "" {
+	if nodeName == "" {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(d.monitorCtx, 10*time.Second)
 	defer cancel()
 
-	// Get current node status
-	node, err := d.k8sClientset.CoreV1().Nodes().Get(ctx, d.currentNodeName, metav1.GetOptions{})
+	node, err := d.k8sClientset.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
 	if err != nil {
-		slog.Warn("Failed to get node status", "node", d.currentNodeName, "error", err)
+		slog.Warn("Failed to get node status", "node", nodeName, "error", err)
 		d.handleNodeFailure()
 		return
 	}
 
-	// Check if node is still ready
 	isHealthy := false
 	for _, condition := range node.Status.Conditions {
 		if condition.Type == corev1.NodeReady {
@@ -285,24 +266,25 @@ func (d *GenericNodeDiscovery) performHealthCheck() {
 		}
 	}
 
-	d.updateCurrentNodeLastCheck(d.currentNodeName, time.Now(), isHealthy)
+	d.mutex.Lock()
+	d.updateCurrentNodeLastCheck(nodeName, time.Now(), isHealthy)
+	d.mutex.Unlock()
 
 	if !isHealthy {
-		slog.Warn("Node became unhealthy", "node", d.currentNodeName)
+		slog.Warn("Node became unhealthy", "node", nodeName)
 		d.handleNodeFailure()
 	} else {
-		// Reset failure count on successful check
+		d.mutex.Lock()
 		if d.failureCount > 0 {
-			slog.Info("Node recovered", "node", d.currentNodeName)
+			slog.Info("Node recovered", "node", nodeName)
 			d.failureCount = 0
 		}
+		d.mutex.Unlock()
 	}
 }
 
-// updateCurrentNodeLastCheck updates the last check time for the current node
 func (d *GenericNodeDiscovery) updateCurrentNodeLastCheck(nodeName string, lastCheck time.Time, isHealthy bool) {
 	d.lastCheck = lastCheck
-	// Update cached node status if we have it
 	for i := range d.cachedNodes {
 		if d.cachedNodes[i].Name == nodeName {
 			d.cachedNodes[i].LastCheck = lastCheck
@@ -316,36 +298,41 @@ func (d *GenericNodeDiscovery) updateCurrentNodeLastCheck(nodeName string, lastC
 	}
 }
 
-// handleNodeFailure increments failure count and triggers failover if needed
 func (d *GenericNodeDiscovery) handleNodeFailure() {
+	d.mutex.Lock()
 	d.failureCount++
+	nodeName := d.currentNodeName
+	shouldFailover := d.failureCount >= 3
+	d.mutex.Unlock()
+
 	slog.Warn("Node health check failed",
-		"node", d.currentNodeName,
+		"node", nodeName,
 		"failure_count", d.failureCount)
 
-	if d.failureCount >= 3 {
+	if shouldFailover {
 		slog.Error("Node failed 3 consecutive health checks, triggering failover",
-			"node", d.currentNodeName)
+			"node", nodeName)
 		d.performFailover()
 	}
 }
 
-// performFailover selects a new healthy node
 func (d *GenericNodeDiscovery) performFailover() {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Get fresh node list
 	nodes, err := d.getAllNodesWithMetadata(ctx)
 	if err != nil {
 		slog.Error("Failed to get nodes during failover", "error", err)
 		return
 	}
 
-	// Find a different healthy node
+	d.mutex.RLock()
+	currentNode := d.currentNodeName
+	d.mutex.RUnlock()
+
 	var candidate *NodeInfo
 	for _, node := range nodes {
-		if node.Status == NodeHealthy && node.Name != d.currentNodeName {
+		if node.Status == NodeHealthy && node.Name != currentNode {
 			if candidate == nil || node.CreationTime.Before(candidate.CreationTime) {
 				candidate = &node
 			}
@@ -357,20 +344,20 @@ func (d *GenericNodeDiscovery) performFailover() {
 		return
 	}
 
-	// Switch to new node
+	d.mutex.Lock()
 	oldNode := d.currentNodeName
 	d.currentNodeName = candidate.Name
 	d.currentNodeIP = candidate.IP
 	d.failureCount = 0
 	d.lastCheck = time.Now()
+	d.mutex.Unlock()
 
 	slog.Info("Failover completed",
 		"old_node", oldNode,
-		"new_node", d.currentNodeName,
-		"new_ip", d.currentNodeIP)
+		"new_node", candidate.Name,
+		"new_ip", candidate.IP)
 }
 
-// GetCurrentNodeName returns the name of the currently selected node
 func (d *GenericNodeDiscovery) GetCurrentNodeName() string {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
