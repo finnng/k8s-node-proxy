@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -84,7 +85,7 @@ func (l *PortListener) start() {
 	defer close(l.done)
 
 	go func() {
-		if err := l.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := l.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("Port server error", "port", l.port, "error", err)
 		}
 	}()

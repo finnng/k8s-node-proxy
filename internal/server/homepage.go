@@ -1,11 +1,16 @@
 package server
 
 import (
+	"context"
 	"html/template"
 	"net/http"
+	"time"
+
+	"k8s-node-proxy/internal/nodes"
+	"k8s-node-proxy/internal/services"
 )
 
-const homepageTemplate = `
+const HomepageTemplate = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -25,17 +30,15 @@ const homepageTemplate = `
     </style>
 </head>
 <body>
-    <h1>k8s-node-proxy Server</h1>
-    
+    <h1>k8s-node-proxy Server{{if .PlatformName}} ({{.PlatformName}}){{end}}</h1>
+
     <div class="section">
         <h2>Cluster Information</h2>
         <table>
             <tr><th>Property</th><th>Value</th></tr>
-            <tr><td>Project ID</td><td>{{.ProjectID}}</td></tr>
-            <tr><td>Cluster Name</td><td>{{.ClusterName}}</td></tr>
-            <tr><td>Cluster Location</td><td>{{.ClusterLocation}}</td></tr>
-            <tr><td>Kubernetes Endpoint</td><td>{{.K8sEndpoint}}</td></tr>
-            <tr><td>Target Namespace</td><td>{{.Namespace}}</td></tr>
+            {{range .ClusterInfo}}
+            <tr><td>{{.Key}}</td><td>{{.Value}}</td></tr>
+            {{end}}
         </table>
     </div>
 
@@ -99,21 +102,41 @@ const homepageTemplate = `
 </html>
 `
 
+type ClusterInfoField struct {
+	Key   string
+	Value string
+}
+
+type CurrentNodeInfo struct {
+	Name   string
+	IP     string
+	Status string
+}
+
+type HomepageData struct {
+	PlatformName string
+	ClusterInfo  []ClusterInfoField
+	Namespace    string
+	CurrentNode  *CurrentNodeInfo
+	AllNodes     []nodes.NodeInfo
+	Services     []services.ServiceInfo
+}
+
 func (s *Server) handleHomepage(w http.ResponseWriter, r *http.Request) {
 	if s.serverInfo == nil {
 		http.Error(w, "Server info not yet collected", http.StatusServiceUnavailable)
 		return
 	}
 
-	// Get fresh node data for display
-	ctx := r.Context()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
 	allNodes, err := s.nodeIPDiscovery.GetAllNodes(ctx)
 	if err != nil {
 		http.Error(w, "Failed to get current node data", http.StatusInternalServerError)
 		return
 	}
 
-	// Get current node info
 	currentNodeName := s.nodeIPDiscovery.GetCurrentNodeName()
 	currentNodeIP, _ := s.nodeIPDiscovery.GetCurrentNodeIP(ctx)
 
@@ -122,23 +145,35 @@ func (s *Server) handleHomepage(w http.ResponseWriter, r *http.Request) {
 		currentNodeInfo = &CurrentNodeInfo{
 			Name:   currentNodeName,
 			IP:     currentNodeIP,
-			Status: "healthy", // Will be updated by health monitoring
+			Status: "healthy",
 		}
 	}
 
-	// Create fresh server info with updated node data
-	freshServerInfo := *s.serverInfo
-	freshServerInfo.AllNodes = allNodes
-	freshServerInfo.CurrentNode = currentNodeInfo
+	clusterInfo := []ClusterInfoField{
+		{Key: "Project ID", Value: s.serverInfo.ProjectID},
+		{Key: "Cluster Name", Value: s.serverInfo.ClusterName},
+		{Key: "Cluster Location", Value: s.serverInfo.ClusterLocation},
+		{Key: "Kubernetes Endpoint", Value: s.serverInfo.K8sEndpoint},
+		{Key: "Target Namespace", Value: s.serverInfo.Namespace},
+	}
 
-	tmpl, err := template.New("homepage").Parse(homepageTemplate)
+	data := HomepageData{
+		PlatformName: "GKE",
+		ClusterInfo:  clusterInfo,
+		Namespace:    s.serverInfo.Namespace,
+		CurrentNode:  currentNodeInfo,
+		AllNodes:     allNodes,
+		Services:     s.serverInfo.Services,
+	}
+
+	tmpl, err := template.New("homepage").Parse(HomepageTemplate)
 	if err != nil {
 		http.Error(w, "Template error", http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html")
-	if err := tmpl.Execute(w, &freshServerInfo); err != nil {
+	if err := tmpl.Execute(w, &data); err != nil {
 		http.Error(w, "Template execution error", http.StatusInternalServerError)
 		return
 	}

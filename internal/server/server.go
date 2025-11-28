@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"k8s-node-proxy/internal/assets"
 	"k8s-node-proxy/internal/nodes"
@@ -70,6 +71,15 @@ func (s *Server) Run() error {
 		slog.Error("Failed to start homepage service port", "port", s.servicePort, "error", err)
 	}
 
+	// Trigger initial node selection (with timeout to prevent hanging)
+	nodeCtx, nodeCancel := context.WithTimeout(ctx, 10*time.Second)
+	if _, err := s.nodeIPDiscovery.GetCurrentNodeIP(nodeCtx); err != nil {
+		slog.Warn("Failed to select initial node, will retry via health monitoring", "error", err)
+	} else {
+		slog.Info("Initial node selected", "node", s.nodeIPDiscovery.GetCurrentNodeName())
+	}
+	nodeCancel()
+
 	// Start health monitoring for node IP discovery
 	s.nodeIPDiscovery.StartHealthMonitoring()
 	slog.Info("Started node health monitoring")
@@ -98,10 +108,12 @@ func (s *Server) Run() error {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	slog.Info("Shutting down all servers...")
+	slog.Info("Shutting down server...")
+	slog.Info("Stopping health monitoring...")
 	s.nodeIPDiscovery.StopHealthMonitoring()
+	slog.Info("Health monitoring stopped, stopping port listeners...")
 	s.portManager.StopAll()
-	slog.Info("All servers exited")
+	slog.Info("Server shutdown complete")
 	return nil
 }
 
@@ -184,8 +196,7 @@ func (s *Server) createServiceHandler() http.Handler {
 			return
 		}
 		if path == "/health" {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("OK"))
+			s.handleHealth(w, r)
 			return
 		}
 
@@ -194,4 +205,19 @@ func (s *Server) createServiceHandler() http.Handler {
 	})
 
 	return mux
+}
+
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	// Use ONLY cached data - NO API calls, NO blocking
+	currentNodeName := s.nodeIPDiscovery.GetCurrentNodeName()
+
+	// Build simple response with cached info only
+	response := fmt.Sprintf(`{
+		"proxy_server": "healthy",
+		"current_node_name": "%s"
+	}`, currentNodeName)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(response))
 }
