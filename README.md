@@ -1,3 +1,5 @@
+
+
 # k8s-node-proxy
 
 A lightweight proxy that provides stable endpoints for Kubernetes NodePort services, automatically handling node failures and IP changes.
@@ -102,7 +104,7 @@ The proxy automatically detects your platform based on environment variables:
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/your-org/k8s-node-proxy.git
+   git clone https://github.com/finnng/k8s-node-proxy.git
    cd k8s-node-proxy
    ```
 
